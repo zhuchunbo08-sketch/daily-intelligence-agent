@@ -289,6 +289,19 @@ class ReportBuilder:
             "#### 我的理解",
             self._understanding(item),
             "",
+            "#### 历史类比 / 发达国家参照",
+            f"- 可比案例：{self._historical_field(item, 'comparable_case')}",
+            f"- 发生时期：{self._historical_field(item, 'period')}",
+            f"- 当时带来的机会：{self._historical_field(item, 'opportunities')}",
+            f"- 中国现在是否类似：{self._historical_field(item, 'china_stage')}",
+            f"- 对普通人的启发：{self._historical_field(item, 'insight')}",
+            "",
+            "#### 认知破界",
+            f"- 大多数人的误解：{self._breakthrough_field(item, 'common_misread')}",
+            f"- 高认知视角：{self._breakthrough_field(item, 'high_level_view')}",
+            f"- 我应该更新的判断：{self._breakthrough_field(item, 'new_judgment')}",
+            f"- 3 年后可能变成：{self._breakthrough_field(item, 'three_year_view')}",
+            "",
             "#### 可执行动作",
             self._first_action(item),
             "",
@@ -337,6 +350,8 @@ class ReportBuilder:
                     f"  - 工具：{self._text(pain.get('tool'), self._pain_tool(item))}",
                     f"  - AI 自动化：{self._text(pain.get('ai_automation'), self._pain_ai(item))}",
                     f"- 适合在哪个平台验证：{self._pain_platforms(item)}",
+                    f"- 发达国家/成熟市场是否已有类似产品或服务：{self._pain_mature_market(item)}",
+                    f"- 认知破界：{self._pain_breakthrough(item)}",
                     f"- 7 天内验证动作：{self._pain_action(item)}",
                     f"- 启动成本：{self._startup_cost(item)}",
                     f"- 难度：{self._difficulty(item)}",
@@ -579,6 +594,14 @@ class ReportBuilder:
         value = item.analysis.get("risk")
         return value if isinstance(value, dict) else {}
 
+    def _historical(self, item: IntelligenceItem) -> dict:
+        value = item.analysis.get("historical_reference")
+        return value if isinstance(value, dict) else {}
+
+    def _breakthrough(self, item: IntelligenceItem) -> dict:
+        value = item.analysis.get("cognitive_breakthrough")
+        return value if isinstance(value, dict) else {}
+
     def _relationship_line(self, item: IntelligenceItem) -> str:
         rel = item.analysis.get("relationship")
         if isinstance(rel, dict):
@@ -690,6 +713,190 @@ class ReportBuilder:
 
     def _pain_platforms(self, item: IntelligenceItem) -> str:
         return self._platforms(item)
+
+    def _historical_field(self, item: IntelligenceItem, key: str) -> str:
+        historical = self._historical(item)
+        if self._valid(historical.get(key)) and not self._is_generic_reference(historical.get(key)):
+            return self._sentence(historical.get(key), FALLBACK)
+        fallback = self._historical_fallback(item)
+        return fallback[key]
+
+    def _historical_fallback(self, item: IntelligenceItem) -> dict[str, str]:
+        text = self._item_text(item).lower()
+        title = self._title_zh(item)
+        if any(word in text for word in ["audiobook", "podcast", "spotify", "音频", "有声书", "播客"]):
+            return {
+                "comparable_case": "欧美有声书、播客和订阅内容市场曾把长内容拆成音频、短视频、课程和社群。",
+                "period": "大致在 2010 年代后期到 2020 年代初逐步成熟。",
+                "opportunities": "当时出现了播客制作、音频剪辑、内容再分发、会员订阅和创作者赞助服务。",
+                "china_stage": "中国内容平台也在把图文、直播、短视频和音频重新组合，但付费习惯仍需验证。",
+                "insight": "普通人的机会不是复制 Spotify，而是帮已有内容资产做音频化和多平台再加工。",
+            }
+        if any(word in text for word in ["creator", "remix", "cover", "版权", "二创", "翻唱", "混音"]):
+            return {
+                "comparable_case": "美国 creator economy 里，Patreon、Substack、YouTube 等平台把创作、授权和粉丝付费逐步工具化。",
+                "period": "大致在 2010 年代中后期开始加速。",
+                "opportunities": "后来出现了创作者经纪、版权清理、素材授权、粉丝会员和内容再加工服务。",
+                "china_stage": "中国也在经历内容从流量分发走向版权、IP 和多形态变现的阶段。",
+                "insight": "提前看清规则边界，比盲目追热点更重要；能合规处理素材的人会更有价值。",
+            }
+        if any(word in text for word in ["search", "google", "搜索"]):
+            return {
+                "comparable_case": "美国互联网经历过从门户到 Google，再到垂直搜索和 AI 搜索的入口迁移。",
+                "period": "门户到搜索发生在 2000 年前后，垂直搜索和 AI 搜索在 2020 年代继续分化。",
+                "opportunities": "每次入口变化都会催生 SEO、内容站、垂直数据库、导购和问答服务。",
+                "china_stage": "中国也在从通用搜索转向小红书、抖音、微信、淘宝站内搜索和 AI 问答并存。",
+                "insight": "普通人要观察用户开始去哪里提问，而不是只盯一个平台的流量规则。",
+            }
+        if any(word in text for word in ["kids", "screen time", "孩子", "育儿", "儿童"]):
+            return {
+                "comparable_case": "欧美和日本较早出现儿童内容分级、家长控制、家庭任务卡和可打印育儿工具。",
+                "period": "2010 年代移动互联网普及后，儿童屏幕管理和家庭教育工具快速增加。",
+                "opportunities": "后来出现了儿童内容 App、家长控制工具、行为奖励表、亲子任务卡和低价资料包。",
+                "china_stage": "中国家庭也在从焦虑式买课转向更低压力、可执行的家庭工具。",
+                "insight": "机会不是制造焦虑，而是把育儿建议变成今晚就能用的小工具。",
+            }
+        if any(word in text for word in ["收纳", "衣架", "宠物", "做饭", "清洁", "小户型"]):
+            return {
+                "comparable_case": "日本收纳经济和欧美家居小物市场很早把大品类按人群、尺寸和场景切细。",
+                "period": "日本在长期小户型和消费精细化阶段逐步成熟。",
+                "opportunities": "催生了儿童尺寸、旅行尺寸、厨房细分工具、宠物清洁和空间管理类小商品。",
+                "china_stage": "中国小户型、育儿、宠物和懒人家务场景正在出现类似细分需求。",
+                "insight": "小商品机会常常不是发明新品，而是把成人用品按儿童、老人、宠物、小户型重新切细。",
+            }
+        if any(word in text for word in ["saas", "automation", "workflow", "自动化", "客服", "详情页", "ai工具", "ai 工具"]):
+            return {
+                "comparable_case": "美国中小企业 SaaS 曾把客服、营销、表单、协作和自动化逐步做成订阅工具。",
+                "period": "大致从 2010 年代云服务普及后加速。",
+                "opportunities": "出现了垂直 SaaS、自动化顾问、模板市场、代配置服务和工作流外包。",
+                "china_stage": "中国很多小商家还未系统购买 SaaS，但愿意为具体问题的代配置和低价工具付费。",
+                "insight": "普通人不一定要做软件平台，先做一套能交付结果的模板和代配置服务更现实。",
+            }
+        return {
+            "comparable_case": "暂无明确历史类比，但可以从产业逻辑上理解为一次成本、效率或分发方式的变化。",
+            "period": "时间阶段不明确，先不要硬套发达国家案例。",
+            "opportunities": "只有当它能降低成本、扩大分发或形成新服务对象时，才可能出现可验证机会。",
+            "china_stage": "中国是否类似还需要看平台规则、用户付费和合规边界。",
+            "insight": f"先把“{title}”当作趋势信号观察，再用国内真实需求验证，而不是直接照搬。",
+        }
+
+    def _breakthrough_field(self, item: IntelligenceItem, key: str) -> str:
+        breakthrough = self._breakthrough(item)
+        if self._valid(breakthrough.get(key)):
+            return self._sentence(breakthrough.get(key), FALLBACK)
+        fallback = self._breakthrough_fallback(item)
+        return fallback[key]
+
+    def _breakthrough_fallback(self, item: IntelligenceItem) -> dict[str, str]:
+        text = self._item_text(item).lower()
+        title = self._title_zh(item)
+        if any(word in text for word in ["audiobook", "podcast", "spotify", "音频", "有声书", "播客"]):
+            return {
+                "common_misread": "大多数人会把它看成某个平台的新功能。",
+                "high_level_view": "更关键的是内容生产链条被压缩，文字、配音、剪辑和分发开始变成一个工作流。",
+                "new_judgment": "我应该从“做内容”转向“帮别人把已有内容资产多次转化”。",
+                "three_year_view": "3 年后，图文转音频、短视频、课程和私域产品可能会变成标准内容服务。",
+            }
+        if any(word in text for word in ["creator", "remix", "cover", "版权", "二创", "翻唱", "混音"]):
+            return {
+                "common_misread": "大多数人只看到 AI 二创更好玩。",
+                "high_level_view": "高认知的人会先看授权、分账和合规工具，因为规则变化决定谁能长期赚钱。",
+                "new_judgment": "我应该把素材合规、版权边界和再加工流程当成服务能力。",
+                "three_year_view": "3 年后，AI 内容二创可能从野路子变成平台内的授权生意。",
+            }
+        if any(word in text for word in ["search", "google", "搜索"]):
+            return {
+                "common_misread": "大多数人会以为只是换一个搜索工具。",
+                "high_level_view": "真正变化是用户提问入口分散，内容被发现的路径正在重写。",
+                "new_judgment": "我应该研究用户在哪些平台搜索具体问题，而不是只研究传统 SEO。",
+                "three_year_view": "3 年后，垂直内容库、问答资产和 AI 可读取资料可能成为新的流量基础设施。",
+            }
+        if any(word in text for word in ["kids", "screen time", "孩子", "育儿", "儿童"]):
+            return {
+                "common_misread": "大多数人会把它理解成又一个儿童内容产品。",
+                "high_level_view": "更深层是家长需要低压力、可执行、能立刻降低家庭摩擦的工具。",
+                "new_judgment": "我应该少做焦虑叙事，多做家长今晚能用的清单、卡片和流程。",
+                "three_year_view": "3 年后，育儿内容可能更像工具包和陪伴服务，而不是单纯课程。",
+            }
+        if any(word in text for word in ["收纳", "衣架", "宠物", "做饭", "清洁", "小户型"]):
+            return {
+                "common_misread": "大多数人会觉得这是太小的生活问题。",
+                "high_level_view": "高认知的人会看到人群、尺寸、场景被重新细分后，小商品也能形成稳定需求。",
+                "new_judgment": "我应该从大品类里找儿童、老人、宠物、小户型等细分场景。",
+                "three_year_view": "3 年后，更多普通用品会按细分人群重新设计和售卖。",
+            }
+        if any(word in text for word in ["saas", "automation", "workflow", "自动化", "客服", "详情页", "ai工具", "ai 工具"]):
+            return {
+                "common_misread": "大多数人会以为机会是开发一个完整软件。",
+                "high_level_view": "更现实的切口是把一个具体工作流做成模板、代配置和轻服务。",
+                "new_judgment": "我应该先卖结果和流程，再考虑产品化。",
+                "three_year_view": "3 年后，小商家的 AI 自动化可能像现在的代运营一样常见。",
+            }
+        return {
+            "common_misread": "大多数人会只看标题热度。",
+            "high_level_view": "高认知的人会先判断它是否改变成本、效率、分发或信任结构。",
+            "new_judgment": f"我应该把“{title}”拆成可验证的人群、场景和第一动作。",
+            "three_year_view": "如果趋势持续，它可能变成某个行业的标准工作流，而不只是今天的新闻。",
+        }
+
+    def _pain_mature_market(self, item: IntelligenceItem) -> str:
+        pain = self._pain(item)
+        if self._valid(pain.get("mature_market_reference")) and not self._is_generic_reference(pain.get("mature_market_reference")):
+            return self._sentence(pain.get("mature_market_reference"), FALLBACK)
+        text = self._pain_signal_text(item).lower()
+        if any(word in text for word in ["孩子", "育儿", "宝宝", "家长"]):
+            return "欧美和日本家庭教育里常见 reward chart、behavior chart、chores chart、routine cards、printable parenting tools。"
+        if any(word in text for word in ["衣架", "收纳", "小户型", "清洁", "厨房"]):
+            return "日本和欧美家居收纳市场有大量儿童尺寸、旅行尺寸、分龄尺寸和小户型场景的小物。"
+        if any(word in text for word in ["宠物"]):
+            return "欧美和日本宠物市场已有宠物清洁、掉毛处理、出行收纳和训练工具等细分产品。"
+        if any(word in text for word in ["ai工具", "ai 工具", "ai tool", "ai tools", "prompt", "自动化", "人工智能"]):
+            return "海外 AI 工具正在从玩具变成工作流基础设施，围绕模板、自动化和行业落地出现服务市场。"
+        if any(word in text for word in ["客服", "详情页", "主图", "淘宝", "商家", "电商"]):
+            return "美国中小企业 SaaS 和电商服务市场已有客服自动化、页面优化、素材模板和代运营工具。"
+        if any(word in text for word in ["小红书", "抖音", "播放量", "选题", "剪辑", "内容"]):
+            return "美国 creator economy 已形成选题工具、剪辑服务、会员订阅、素材模板和创作者顾问服务。"
+        return "暂无明确成熟市场参照，但可以先从人群、场景、频次和付费意愿判断是否值得验证。"
+
+    def _pain_breakthrough(self, item: IntelligenceItem) -> str:
+        pain = self._pain(item)
+        if self._valid(pain.get("cognitive_breakthrough")) and not self._is_generic_reference(pain.get("cognitive_breakthrough")):
+            return self._sentence(pain.get("cognitive_breakthrough"), FALLBACK)
+        text = self._pain_signal_text(item).lower()
+        if any(word in text for word in ["孩子", "育儿", "宝宝", "家长"]):
+            return "很多人以为育儿机会只能做课程，其实更低门槛的是可打印、可执行、低价工具包；家长缺的往往不是大道理，而是今晚就能用的工具。"
+        if any(word in text for word in ["衣架", "收纳", "小户型", "清洁", "厨房"]):
+            return "小商品机会往往不是创造新需求，而是把一个大品类按人群、尺寸、空间和使用场景重新切细。"
+        if any(word in text for word in ["ai工具", "ai 工具", "ai tool", "ai tools", "prompt", "自动化", "人工智能"]):
+            return "AI 机会不在工具数量本身，而在把混乱工具变成某个行业可复用的工作流。"
+        if any(word in text for word in ["客服", "详情页", "主图", "淘宝", "商家", "电商"]):
+            return "小商家不一定愿意买复杂系统，但愿意为一个立刻改善转化或节省时间的具体交付付费。"
+        if any(word in text for word in ["小红书", "抖音", "播放量", "选题", "剪辑", "内容"]):
+            return "内容创作者缺的常常不是更多技巧，而是能持续产出、复盘和转化的低摩擦流程。"
+        return "真正的机会不是问题被很多人讨论，而是它能被做成低成本、可交付、可验证的商品、内容或服务。"
+
+    def _is_generic_reference(self, value) -> bool:
+        text = str(value or "")
+        generic_markers = [
+            "暂无明确历史类比",
+            "暂无明确成熟市场参照",
+            "时间阶段不明确",
+            "产业逻辑上理解",
+            "真正的机会不是问题被很多人讨论",
+        ]
+        return any(marker in text for marker in generic_markers)
+
+    def _pain_signal_text(self, item: IntelligenceItem) -> str:
+        pain = self._pain(item)
+        return " ".join(
+            [
+                str(item.title or ""),
+                str(item.source or ""),
+                str(item.category or ""),
+                str(pain.get("question") or ""),
+                str(pain.get("audience") or ""),
+            ]
+        )
 
     def _target_audience(self, item: IntelligenceItem) -> str:
         text = self._item_text(item)
@@ -882,3 +1089,35 @@ class ReportBuilder:
         for marker in ["：无", "：/", ": /", ": 无"]:
             if marker in report:
                 raise ValueError(f"Report structure invalid: empty marker found {marker!r}")
+
+        change_area = report[report.index(SECTION_HEADINGS[1]) : report.index(SECTION_HEADINGS[2])]
+        change_blocks = re.findall(r"(?ms)^### \d+\. .*?(?=^### \d+\.|^## 二、|\Z)", change_area)
+        for block in change_blocks:
+            required = [
+                "#### 我的理解",
+                "#### 历史类比 / 发达国家参照",
+                "- 可比案例：",
+                "- 发生时期：",
+                "- 当时带来的机会：",
+                "- 中国现在是否类似：",
+                "- 对普通人的启发：",
+                "#### 认知破界",
+                "- 大多数人的误解：",
+                "- 高认知视角：",
+                "- 我应该更新的判断：",
+                "- 3 年后可能变成：",
+                "#### 可执行动作",
+            ]
+            missing = [item for item in required if item not in block]
+            if missing:
+                title = block.splitlines()[0] if block.splitlines() else "unknown"
+                raise ValueError(f"Report structure invalid: {title} missing {missing}")
+
+        pain_area = report[report.index(SECTION_HEADINGS[3]) : report.index(SECTION_HEADINGS[4])]
+        pain_blocks = re.findall(r"(?ms)^### 痛点 \d+：.*?(?=^### 痛点 \d+：|^## 四、|\Z)", pain_area)
+        for block in pain_blocks:
+            required = ["- 发达国家/成熟市场是否已有类似产品或服务：", "- 认知破界："]
+            missing = [item for item in required if item not in block]
+            if missing:
+                title = block.splitlines()[0] if block.splitlines() else "unknown"
+                raise ValueError(f"Report structure invalid: {title} missing {missing}")
