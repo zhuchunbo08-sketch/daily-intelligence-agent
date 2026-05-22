@@ -67,9 +67,13 @@ affected_industries: string
 plain_language: string
 deep_insight: string
 relationship: object，字段包含 ordinary_people, small_business, ecommerce, creators, ai_efficiency, opportunity_seekers
-opportunity: object，字段包含 status(是/否/观察中), name, source, suitable_for, monetization, required_skills, startup_cost, path, first_action, risk_level, recommendation_index
+domestic_mapping: object，字段包含 similar_scene, direct_use, migration_target, platforms, personal_value。海外平台新闻必须强制填写中国落地价值。
+opportunity: object，字段包含 status(是/否/观察中), name, source, suitable_for, not_suitable_for, monetization, required_skills, startup_cost, path, first_action, three_day_action, risk_level, recommendation_index, mainland_fit, fit_me
 cognition: object，字段包含 old, new, judgment_change, long_term_meaning
 risk: object，字段包含 packaging_risk, traps, warning_words
+
+推荐指数必须是 1-5 的整数。字段不能填“无”或“/”，没有明确价值时填“暂无明确价值，但可作为趋势观察”。
+如果机会需要融资、硬件研发、专业化学、气候科学、AI底层模型、巨额资本，只能标为观察中或不建议碰。
 
 已知新鲜度分：{freshness_score}
 """
@@ -140,18 +144,29 @@ risk: object，字段包含 packaging_risk, traps, warning_words
                 "ai_efficiency": "如果能自动化重复工作，可进一步验证工具价值。",
                 "opportunity_seekers": "先记录信号，再找真实案例验证。",
             },
+            "domestic_mapping": {
+                "similar_scene": "有，可对照抖音、小红书、淘宝、视频号、公众号、知识付费或企业服务场景。",
+                "direct_use": "不能直接照搬，需要先做国内平台、账号、支付和合规迁移。",
+                "migration_target": "迁移到国内内容平台、电商平台、私域服务或企业自动化服务。",
+                "platforms": "抖音 / 小红书 / 淘宝 / 视频号 / 公众号 / 知识付费 / 企业服务",
+                "personal_value": "有观察价值，尤其适合判断 AI、自动化、电商运营和内容变现是否出现新需求。",
+            },
             "opportunity": {
                 "status": "观察中" if money_score >= 5 else "否",
                 "name": item.title[:60],
                 "source": item.source,
                 "suitable_for": "有相关行业经验或能低成本验证的人",
+                "not_suitable_for": "不适合没有时间验证、只想直接复制收益的人。",
                 "monetization": "先做服务、内容或工具验证，不建议重资产投入。",
                 "required_skills": "信息验证、客户访谈、基础自动化能力",
                 "startup_cost": "低到中，取决于验证方式",
                 "path": "收集案例 -> 找痛点 -> 做小样本验证 -> 再考虑放大",
                 "first_action": "保存来源链接，找 3 个真实用户或商家验证需求。",
+                "three_day_action": "第 1 天收集 10 条需求，第 2 天做 1 页服务说明，第 3 天找 3 个潜在用户验证。",
                 "risk_level": "高" if has_risk else "中",
-                "recommendation_index": "观察",
+                "recommendation_index": 2,
+                "mainland_fit": "可作为中国大陆普通人的趋势观察，不建议直接照搬。",
+                "fit_me": "适合作为 AI、自动化、电商或内容变现方向的观察素材。",
             },
             "cognition": {
                 "old": "只看新闻标题判断机会。",

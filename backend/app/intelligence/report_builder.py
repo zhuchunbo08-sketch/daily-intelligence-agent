@@ -1,21 +1,63 @@
 from datetime import datetime
-import json
-import logging
+from urllib.parse import urlparse
 import re
 
 from app.core.config import get_settings
 import app.db.model_helpers  # noqa: F401
 from app.db.models import IntelligenceItem
 from app.intelligence.text import BLOCKED_PHRASES
-from app.llm.client import LLMClient
 
-logger = logging.getLogger(__name__)
+FALLBACK = "暂无明确价值，但可作为趋势观察"
+SECTION_HEADINGS = [
+    "## 先说结论",
+    "## 一、今日最值得关注的 3-5 条变化",
+    "## 二、今日赚钱机会雷达",
+    "## 三、今日认知升级",
+    "## 四、今日反割韭菜提醒",
+    "## 五、今日行动建议",
+]
+ITEM_SUBHEADINGS = [
+    "#### 用普通话说",
+    "#### 我的理解 / 深度拆解",
+    "#### 国内映射",
+    "#### 和我有什么关系",
+    "#### 赚钱机会拆解",
+    "#### 认知升级点",
+    "#### 风险提醒",
+]
+HIGH_CAPITAL_KEYWORDS = [
+    "融资",
+    "上市",
+    "IPO",
+    "硬件研发",
+    "专业化学",
+    "气候科学",
+    "AI底层模型",
+    "底层模型",
+    "巨额资本",
+    "数据中心",
+    "GPU",
+    "芯片",
+    "制造",
+    "实验室",
+    "算力",
+    "药物研发",
+    "自动驾驶",
+    "碳移除",
+    "carbon removal",
+    "分子",
+    "molecule",
+    "molecules",
+    "biotech",
+    "fragrance",
+    "scent molecule",
+    "scent molecules",
+]
 
 
 class ReportBuilder:
     def __init__(self) -> None:
         self.settings = get_settings()
-        self.llm = LLMClient()
 
     async def build(
         self,
@@ -25,27 +67,15 @@ class ReportBuilder:
         items: list[IntelligenceItem],
         observed_items: list[IntelligenceItem],
     ) -> str:
-        template_report = self._build_template(
+        report = self._build_template(
             report_date=report_date,
             window_start=window_start,
             window_end=window_end,
             items=items,
             observed_items=observed_items,
         )
-        if not self.llm.enabled:
-            return template_report
-        try:
-            return await self._build_with_ai(
-                report_date=report_date,
-                window_start=window_start,
-                window_end=window_end,
-                items=items,
-                observed_items=observed_items,
-                fallback_report=template_report,
-            )
-        except Exception:
-            logger.exception("AI report generation failed, using template report")
-            return template_report
+        self._validate_report_structure(report)
+        return report
 
     def _build_template(
         self,
@@ -58,19 +88,9 @@ class ReportBuilder:
         top_items = sorted(items, key=lambda item: item.final_score, reverse=True)[
             : self.settings.max_items_per_report
         ]
-        opportunity_items = [
-            item
-            for item in top_items
-            if item.has_money_opportunity and not item.has_cutting_risk
-        ][:5]
-        cognition_items = [
-            item for item in top_items if item.has_cognition_value and not item.has_cutting_risk
-        ][:3]
-        risk_items = sorted(
-            [item for item in observed_items if item.has_cutting_risk or item.risk_score >= 6],
-            key=lambda item: item.risk_score,
-            reverse=True,
-        )[:5]
+        radar_items = self._radar_items(top_items)
+        cognition_items = self._cognition_items(top_items)
+        risk_items = self._risk_items(observed_items)
 
         lines = [
             "# 每日破圈赚钱情报",
@@ -80,10 +100,10 @@ class ReportBuilder:
             "",
             "## 先说结论",
             "",
-            f"- 今天最重要的变化：{self._one_line(top_items, '今天没有发现足够可信的新变化，宁可少报，不凑数。')}",
-            f"- 今天最值得注意的赚钱机会：{self._one_line(opportunity_items, '暂未发现可信度足够的明确机会，相关信号放入观察。')}",
-            f"- 今天最值得更新的认知：{self._one_line(cognition_items, '重点仍是持续观察政策、平台和技术变化的真实影响。')}",
-            f"- 今天最需要避开的坑：{self._risk_line(risk_items)}",
+            f"- 今天最重要的变化：{self._text(top_items[0].title if top_items else None)}",
+            f"- 今天最值得注意的赚钱机会：{self._text(self._opportunity_name(radar_items[0]) if radar_items else None)}",
+            f"- 今天最值得更新的认知：{self._text(self._cognition(top_items[0]).get('new') if top_items else None)}",
+            f"- 今天最需要避开的坑：{self._text(self._risk_title(risk_items[0]) if risk_items else '高收益副业包装、拉人头项目、刷单和不透明资金流')}",
             "",
             "## 一、今日最值得关注的 3-5 条变化",
             "",
@@ -96,239 +116,475 @@ class ReportBuilder:
             lines.append("今天没有通过新鲜度、可信度、去重和风险过滤的重点资讯。")
 
         lines.extend(["", "## 二、今日赚钱机会雷达", ""])
-        if opportunity_items:
-            for item in opportunity_items:
-                opportunity = self._dict(item.analysis.get("opportunity"))
-                lines.extend(
-                    [
-                        f"- {opportunity.get('name') or item.title}",
-                        f"  - 状态：{opportunity.get('status', '观察中')}",
-                        f"  - 适合谁：{opportunity.get('suitable_for', '需要进一步验证')}",
-                        f"  - 第一行动：{opportunity.get('first_action', '先验证来源和真实需求')}",
-                        f"  - 风险等级：{opportunity.get('risk_level', '中')}",
-                    ]
-                )
-        else:
-            lines.append("没有足够可信的明确机会。看起来像机会但证据不足的内容，已经放入观察名单。")
+        lines.extend(self._render_radar(radar_items))
 
         lines.extend(["", "## 三、今日认知升级", ""])
-        if cognition_items:
-            for item in cognition_items:
-                cognition = self._dict(item.analysis.get("cognition"))
-                lines.extend(
-                    [
-                        f"- 旧认知：{cognition.get('old', '只看表面热度')}",
-                        f"  新认知：{cognition.get('new', '先看结构性变化，再决定是否行动')}",
-                        f"  长期意义：{cognition.get('long_term_meaning', '持续积累判断框架')}",
-                    ]
-                )
-        else:
-            lines.append("今天没有足够强的新认知信号。")
+        lines.extend(self._render_cognition_summary(cognition_items))
 
         lines.extend(["", "## 四、今日反割韭菜提醒", ""])
-        if risk_items:
-            for item in risk_items:
-                risk = self._dict(item.analysis.get("risk"))
-                lines.extend(
-                    [
-                        f"- {item.title}",
-                        f"  - 风险：{risk.get('packaging_risk', '可能被包装成高收益项目')}",
-                        f"  - 易踩坑：{risk.get('traps', '忽视来源、案例和合规性')}",
-                    ]
-                )
-        else:
-            lines.append("今天没有进入高风险名单的内容，但仍要警惕夸大收益、拉人头、刷单和不透明资金流。")
+        lines.extend(self._render_risk_summary(risk_items))
 
         lines.extend(["", "## 五、今日行动建议", ""])
-        lines.extend(self._actions(top_items, opportunity_items))
+        lines.extend(self._render_actions(radar_items, top_items))
 
-        return self._sanitize("\n".join(lines))
-
-    async def _build_with_ai(
-        self,
-        report_date: str,
-        window_start: datetime,
-        window_end: datetime,
-        items: list[IntelligenceItem],
-        observed_items: list[IntelligenceItem],
-        fallback_report: str,
-    ) -> str:
-        payload = {
-            "report_date": report_date,
-            "window_start": window_start.isoformat(),
-            "window_end": window_end.isoformat(),
-            "push_items": [self._item_payload(item) for item in items[: self.settings.max_items_per_report]],
-            "observed_risk_items": [
-                self._item_payload(item)
-                for item in sorted(observed_items, key=lambda x: x.risk_score, reverse=True)[:8]
-            ],
-            "fallback_report": fallback_report[:12000],
-        }
-        system_prompt = """
-你是“每日破圈赚钱情报系统”的日报生成器。你必须只基于输入 JSON 生成日报，不能虚构来源、案例、数据或收益。
-所有分类、摘要、机会、风险、深度理解、认知升级都来自输入中的 AI 分析结果。
-如果证据不足，明确写“观察中”或“不推荐行动”，不要为了凑数补内容。
-禁止出现：轻松月入过万、零基础暴富、稳赚不赔、躺赚、无脑复制。
-输出 Markdown，不要解释你的生成过程。
-"""
-        user_prompt = f"""
-请生成固定格式日报，结构必须包含：
-
-# 每日破圈赚钱情报
-日期：YYYY-MM-DD
-覆盖时间：昨天 07:00 - 今天 07:00
-
-## 先说结论
-## 一、今日最值得关注的 3-5 条变化
-## 二、今日赚钱机会雷达
-## 三、今日认知升级
-## 四、今日反割韭菜提醒
-## 五、今日行动建议
-
-每条重点资讯必须包含：
-- 发生了什么
-- 时间范围
-- 来源
-- 所属类别
-- 可信度
-- 新鲜度判断
-- 为什么重要
-- 影响行业
-- 来源链接
-- 用普通话说
-- 我的理解 / 深度拆解
-- 和我有什么关系
-- 赚钱机会拆解
-- 认知升级点
-- 风险提醒
-
-输入 JSON：
-{json.dumps(payload, ensure_ascii=False)}
-"""
-        report = await self.llm.chat_text(system_prompt=system_prompt, user_prompt=user_prompt)
-        report = report.strip()
-        if not report.startswith("# 每日破圈赚钱情报"):
-            report = fallback_report
-        return self._sanitize(report)
-
-    def _item_payload(self, item: IntelligenceItem) -> dict:
-        return {
-            "title": item.title,
-            "url": item.url,
-            "source": item.source,
-            "source_type": item.source_type,
-            "category": item.category,
-            "published_at": item.published_at.isoformat() if item.published_at else None,
-            "event_time": item.event_time.isoformat() if item.event_time else None,
-            "summary": item.summary,
-            "freshness_score": item.freshness_score,
-            "money_score": item.money_score,
-            "trend_score": item.trend_score,
-            "cognition_score": item.cognition_score,
-            "actionability_score": item.actionability_score,
-            "risk_score": item.risk_score,
-            "final_score": item.final_score,
-            "credibility": item.credibility,
-            "freshness_label": item.freshness_label,
-            "worth_pushing": item.worth_pushing,
-            "analysis": item.analysis,
-        }
+        return self._sanitize("\n".join(lines).strip() + "\n")
 
     def _render_item(self, index: int, item: IntelligenceItem) -> list[str]:
         analysis = item.analysis
-        relationship = self._dict(analysis.get("relationship"))
-        opportunity = self._dict(analysis.get("opportunity"))
-        cognition = self._dict(analysis.get("cognition"))
-        risk = self._dict(analysis.get("risk"))
+        relationship = self._relationship(item)
+        opportunity = self._opportunity(item)
+        cognition = self._cognition(item)
+        risk = self._risk(item)
+        domestic = self._domestic_mapping(item)
+        recommendation = self._recommendation_index(item)
+        status = self._opportunity_status(item)
+
         return [
-            f"### {index}. {item.title}",
-            "",
-            f"- 发生了什么：{analysis.get('what_happened', item.summary or item.title)}",
-            f"- 时间范围：{item.event_time or item.published_at}",
-            f"- 来源：{item.source}",
-            f"- 所属类别：{item.category}",
-            f"- 可信度：{item.credibility or '中'}",
-            f"- 新鲜度判断：{item.freshness_label or '确认是过去24小时内'}",
-            f"- 为什么重要：{analysis.get('why_important', '')}",
-            f"- 影响行业：{analysis.get('affected_industries', item.category or '')}",
-            f"- 来源链接：{item.url}",
+            f"### {index}. {self._text(item.title)}",
+            f"- 发生了什么：{self._text(analysis.get('what_happened'), item.summary or item.title)}",
+            f"- 时间范围：{self._text(item.event_time or item.published_at)}",
+            f"- 来源：{self._text(item.source)}",
+            f"- 所属类别：{self._text(item.category)}",
+            f"- 可信度：{self._text(item.credibility, '中')}",
+            f"- 新鲜度判断：{self._text(item.freshness_label, '确认是过去24小时内')}",
+            f"- 为什么重要：{self._text(analysis.get('why_important'))}",
+            f"- 影响行业：{self._text(analysis.get('affected_industries'), item.category)}",
+            f"- 来源链接：{self._text(item.url)}",
             "",
             "#### 用普通话说",
-            "",
-            "这件事简单理解就是：",
-            "",
-            analysis.get("plain_language", item.summary or item.title),
+            self._text(analysis.get("plain_language"), item.summary or item.title),
             "",
             "#### 我的理解 / 深度拆解",
+            self._text(analysis.get("deep_insight")),
             "",
-            "这件事表面上看是：",
-            "",
-            analysis.get("what_happened", item.title),
-            "",
-            "但背后真正说明的是：",
-            "",
-            analysis.get("deep_insight", "需要继续观察它是否带来结构性变化。"),
+            "#### 国内映射",
+            f"- 中国有没有类似平台/场景：{domestic['similar_scene']}",
+            f"- 中国普通人能不能直接用：{domestic['direct_use']}",
+            f"- 如果不能直接用，能迁移到哪里：{domestic['migration_target']}",
+            f"- 适合迁移到：{domestic['platforms']}",
+            f"- 对我这种关注 AI、自动化、淘宝/电商、内容变现的人是否有价值：{domestic['personal_value']}",
             "",
             "#### 和我有什么关系",
-            "",
-            f"- 对普通人：{relationship.get('ordinary_people', '先观察，不盲目投入。')}",
-            f"- 对小商家：{relationship.get('small_business', '关注是否影响获客或交付。')}",
-            f"- 对淘宝/电商：{relationship.get('ecommerce', '关注平台规则、流量和消费需求变化。')}",
-            f"- 对内容创作者：{relationship.get('creators', '关注新选题和新分发入口。')}",
-            f"- 对想用 AI 提效的人：{relationship.get('ai_efficiency', '观察是否能自动化重复工作。')}",
-            f"- 对想找新机会的人：{relationship.get('opportunity_seekers', '先验证真实需求和案例。')}",
+            f"- 对普通人：{relationship['ordinary_people']}",
+            f"- 对小商家：{relationship['small_business']}",
+            f"- 对淘宝/电商：{relationship['ecommerce']}",
+            f"- 对内容创作者：{relationship['creators']}",
+            f"- 对想用 AI 提效的人：{relationship['ai_efficiency']}",
+            f"- 对想找新机会的人：{relationship['opportunity_seekers']}",
             "",
             "#### 赚钱机会拆解",
-            "",
-            f"- 是否存在赚钱机会：{opportunity.get('status', '观察中')}",
-            f"- 机会名称：{opportunity.get('name', item.title)}",
-            f"- 机会来源：{opportunity.get('source', item.source)}",
-            f"- 适合谁：{opportunity.get('suitable_for', '需要进一步验证的人')}",
-            f"- 怎么赚钱：{opportunity.get('monetization', '先做小规模验证')}",
-            f"- 需要什么能力：{opportunity.get('required_skills', '信息验证和执行能力')}",
-            f"- 启动成本：{opportunity.get('startup_cost', '低到中')}",
-            f"- 变现路径：{opportunity.get('path', '验证需求后再设计服务或产品')}",
-            f"- 第一行动：{opportunity.get('first_action', '先找真实用户验证')}",
-            f"- 风险等级：{opportunity.get('risk_level', '中')}",
-            f"- 推荐指数：{opportunity.get('recommendation_index', '观察')}",
+            f"- 是否存在赚钱机会：{status}",
+            f"- 机会名称：{self._opportunity_name(item)}",
+            f"- 适合谁：{self._text(opportunity.get('suitable_for'))}",
+            f"- 不适合谁：{self._not_suitable_for(item)}",
+            f"- 怎么赚钱：{self._text(opportunity.get('monetization'))}",
+            f"- 第一个可执行动作：{self._first_action(item)}",
+            f"- 3 天内能做什么：{self._three_day_action(item)}",
+            f"- 启动成本：{self._startup_cost(item)}",
+            f"- 风险等级：{self._risk_level(item)}",
+            f"- 推荐指数：{recommendation}",
+            f"- 是否适合中国大陆普通人：{self._mainland_fit(item)}",
+            f"- 是否适合我：{self._fit_me(item)}",
             "",
             "#### 认知升级点",
-            "",
-            f"- 旧认知：{cognition.get('old', '把热点当机会。')}",
-            f"- 新认知：{cognition.get('new', '把热点拆成真实变化、受益方和可执行路径。')}",
-            f"- 我应该改变的判断：{cognition.get('judgment_change', '先验证，再行动。')}",
-            f"- 长期意义：{cognition.get('long_term_meaning', '训练对变化的判断力。')}",
+            f"- 旧认知：{self._text(cognition.get('old'))}",
+            f"- 新认知：{self._text(cognition.get('new'))}",
+            f"- 我应该改变的判断：{self._text(cognition.get('judgment_change'))}",
+            f"- 长期意义：{self._text(cognition.get('long_term_meaning'))}",
             "",
             "#### 风险提醒",
-            "",
-            f"- 这件事有没有被人包装成割韭菜项目的可能：{risk.get('packaging_risk', '有可能，需要警惕夸大包装。')}",
-            f"- 普通人容易踩什么坑：{risk.get('traps', '只看收益承诺，不看真实交付。')}",
-            f"- 哪些话术要警惕：{risk.get('warning_words', '夸大收益、拉人头、刷单、资金盘')}",
+            f"- 可能被包装成什么割韭菜项目：{self._text(risk.get('packaging_risk'), '高收益副业课、代运营捷径、自动化暴利项目')}",
+            f"- 常见忽悠话术：{self._text(risk.get('warning_words'), '承诺固定收益、强调不需要能力、催促立刻付费')}",
+            f"- 普通人判断真假的方法：{self._text(risk.get('traps'), '先查来源、看真实交付、找独立案例、避免先交大额费用')}",
             "",
         ]
 
-    def _one_line(self, items: list[IntelligenceItem], fallback: str) -> str:
+    def _render_radar(self, items: list[IntelligenceItem]) -> list[str]:
         if not items:
-            return fallback
-        return items[0].title
+            return [
+                "- 机会名称：暂无明确价值，但可作为趋势观察",
+                "  来源：暂无明确价值，但可作为趋势观察",
+                "  状态：观察中",
+                "  适合谁：暂无明确价值，但可作为趋势观察",
+                "  第一行动：今天花 30 分钟在小红书、抖音、淘宝搜索“AI 自动化 电商 提效”，记录 10 个真实需求句子。",
+                "  3 天内动作：用表格整理 10 个需求、3 个已有解决方案、1 个可做的小样方向。",
+                "  风险等级：中",
+                "  推荐指数：2",
+                "  中国落地价值：可作为趋势观察，暂不作为推荐机会。",
+            ]
 
-    def _risk_line(self, items: list[IntelligenceItem]) -> str:
+        lines: list[str] = []
+        for item in items:
+            lines.extend(
+                [
+                    f"- 机会名称：{self._opportunity_name(item)}",
+                    f"  来源：{self._text(item.source)}",
+                    f"  状态：{self._radar_status(item)}",
+                    f"  适合谁：{self._text(self._opportunity(item).get('suitable_for'))}",
+                    f"  第一行动：{self._first_action(item)}",
+                    f"  3 天内动作：{self._three_day_action(item)}",
+                    f"  风险等级：{self._risk_level(item)}",
+                    f"  推荐指数：{self._recommendation_index(item)}",
+                    f"  中国落地价值：{self._domestic_mapping(item)['personal_value']}",
+                ]
+            )
+        return lines
+
+    def _render_cognition_summary(self, items: list[IntelligenceItem]) -> list[str]:
         if not items:
-            return "警惕夸大收益、拉人头、刷单、灰产和来源不透明项目。"
-        return items[0].title
+            return [
+                "- 旧认知：看到海外新产品就等于看到国内机会。",
+                "  新认知：先判断它能否迁移到国内平台、是否有明确服务对象、普通人 7 天内能否验证。",
+                "  为什么重要：这能避免把资本密集型趋势误判成普通人项目。",
+                "  我应该怎么调整判断：先做国内映射和低成本验证，再决定是否投入。",
+            ]
 
-    def _actions(
-        self, top_items: list[IntelligenceItem], opportunity_items: list[IntelligenceItem]
+        lines: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            cognition = self._cognition(item)
+            old = self._text(cognition.get("old"))
+            new = self._text(cognition.get("new"))
+            key = f"{old}|{new}"
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.extend(
+                [
+                    f"- 旧认知：{old}",
+                    f"  新认知：{new}",
+                    f"  为什么重要：{self._text(cognition.get('long_term_meaning'))}",
+                    f"  我应该怎么调整判断：{self._text(cognition.get('judgment_change'))}",
+                ]
+            )
+            if len(seen) >= 3:
+                break
+        return lines
+
+    def _render_risk_summary(self, items: list[IntelligenceItem]) -> list[str]:
+        if not items:
+            return [
+                "- 风险项目/概念：高收益副业包装",
+                "  为什么有风险：常把不确定的流量机会包装成确定收益，忽略交付难度和平台规则。",
+                "  常见话术：限时名额、无需能力、复制模板、保证结果、先交费用。",
+                "  判断方法：要求对方展示真实交付、独立案例、退款规则和可验证客户来源。",
+                "  建议：不支付大额费用，先用公开资料和免费工具做 1 次小样验证。",
+            ]
+
+        lines: list[str] = []
+        for item in items[:5]:
+            risk = self._risk(item)
+            lines.extend(
+                [
+                    f"- 风险项目/概念：{self._risk_title(item)}",
+                    f"  为什么有风险：{self._text(risk.get('packaging_risk'), '可能把趋势包装成确定收益项目')}",
+                    f"  常见话术：{self._text(risk.get('warning_words'), '保证收益、无需能力、限时上车、复制即可')}",
+                    f"  判断方法：{self._text(risk.get('traps'), '看来源、看交付、看真实客户、看是否要求先交大额费用')}",
+                    "  建议：先记录为风险观察，不支付费用，不转发推广，不拉人参与。",
+                ]
+            )
+        return lines
+
+    def _render_actions(
+        self, radar_items: list[IntelligenceItem], top_items: list[IntelligenceItem]
     ) -> list[str]:
         actions: list[str] = []
-        for item in opportunity_items[:2]:
-            opportunity = self._dict(item.analysis.get("opportunity"))
-            actions.append(f"- {opportunity.get('first_action', '验证这条机会的真实需求')} 来源：{item.url}")
-        if top_items:
-            actions.append(f"- 选一条最相关的变化做 30 分钟验证：{top_items[0].title}")
-        if not actions:
-            actions.append("- 今天不强行动，维护观察名单，明天继续看是否出现连续信号。")
+        if radar_items:
+            item = radar_items[0]
+            keyword = self._keyword(item)
+            actions.append(
+                f"- 今天花 30 分钟在小红书、抖音、淘宝分别搜索“{keyword}”，每个平台记录 5 条真实用户需求。"
+            )
+            actions.append(
+                f"- 用飞书表格建 4 列：需求原话、现有解决方案、可迁移平台、能否 7 天验证，把“{self._opportunity_name(item)}”拆成 3 个小样方向。"
+            )
+            actions.append(f"- 找 3 个淘宝/电商或内容创作者，拿“{keyword}”相关问题问他们现在怎么解决、愿不愿意付费。")
+        elif top_items:
+            item = top_items[0]
+            keyword = self._keyword(item)
+            actions.append(
+                f"- 今天花 30 分钟搜索“{keyword} 国内案例”，只记录有真实产品、真实客户或真实交易截图的 5 个案例。"
+            )
+            actions.append(
+                f"- 用一页文档写清楚“{keyword}”能迁移到抖音、小红书、淘宝还是企业服务，并列出 3 个不能做的原因。"
+            )
+        else:
+            actions.append("- 今天花 30 分钟检查数据源列表，新增 3 个与你关注的 AI、电商、自动化相关 RSS 或公告源。")
         return actions[:3]
+
+    def _radar_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
+        selected: list[IntelligenceItem] = []
+        for item in items:
+            if self._is_high_capital(item) or item.risk_score >= 7:
+                continue
+            if not item.has_money_opportunity or item.money_score < 5:
+                continue
+            if self._radar_criteria_count(item) >= 3:
+                selected.append(item)
+        return selected[:5]
+
+    def _radar_criteria_count(self, item: IntelligenceItem) -> int:
+        opportunity = self._opportunity(item)
+        criteria = [
+            self._seven_day_verifiable(item),
+            self._startup_cost(item) in {"低", "中"},
+            not self._depends_on_overseas_restriction(item),
+            self._can_migrate_to_china(item),
+            self._has_clear_service_object(opportunity),
+            self._has_executable_first_step(item),
+            self._risk_level(item) != "高",
+        ]
+        return sum(1 for value in criteria if value)
+
+    def _cognition_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
+        return [item for item in items if item.has_cognition_value or item.cognition_score >= 4][:3]
+
+    def _risk_items(self, observed_items: list[IntelligenceItem]) -> list[IntelligenceItem]:
+        return sorted(
+            [item for item in observed_items if item.has_cutting_risk or item.risk_score >= 6],
+            key=lambda item: item.risk_score,
+            reverse=True,
+        )[:5]
+
+    def _relationship(self, item: IntelligenceItem) -> dict:
+        relationship = self._dict(item.analysis.get("relationship"))
+        return {
+            "ordinary_people": self._text(relationship.get("ordinary_people")),
+            "small_business": self._text(relationship.get("small_business")),
+            "ecommerce": self._text(relationship.get("ecommerce")),
+            "creators": self._text(relationship.get("creators")),
+            "ai_efficiency": self._text(relationship.get("ai_efficiency")),
+            "opportunity_seekers": self._text(relationship.get("opportunity_seekers")),
+        }
+
+    def _opportunity(self, item: IntelligenceItem) -> dict:
+        return self._dict(item.analysis.get("opportunity"))
+
+    def _cognition(self, item: IntelligenceItem) -> dict:
+        cognition = self._dict(item.analysis.get("cognition"))
+        return {
+            "old": self._text(cognition.get("old"), "把新闻热度直接当成机会。"),
+            "new": self._text(cognition.get("new"), "先看国内迁移、服务对象、验证成本和风险，再判断机会。"),
+            "judgment_change": self._text(cognition.get("judgment_change"), "先做低成本验证，不把资本趋势当成普通人项目。"),
+            "long_term_meaning": self._text(cognition.get("long_term_meaning"), "长期能提升对平台变化、技术变化和商业机会的判断力。"),
+        }
+
+    def _risk(self, item: IntelligenceItem) -> dict:
+        risk = self._dict(item.analysis.get("risk"))
+        return {
+            "packaging_risk": self._text(risk.get("packaging_risk"), "可能被包装成高收益副业、代运营捷径或自动化暴利项目。"),
+            "warning_words": self._text(risk.get("warning_words"), "保证收益、无需能力、限时上车、复制即可。"),
+            "traps": self._text(risk.get("traps"), "先查来源、看真实交付、找独立案例、避免先交大额费用。"),
+        }
+
+    def _domestic_mapping(self, item: IntelligenceItem) -> dict:
+        mapping = self._dict(item.analysis.get("domestic_mapping"))
+        platforms = self._platforms(item)
+        is_overseas = self._is_overseas(item)
+        return {
+            "similar_scene": self._text(
+                mapping.get("similar_scene"),
+                "有，可对照抖音、小红书、淘宝、视频号、公众号、知识付费或企业服务场景。",
+            ),
+            "direct_use": self._text(
+                mapping.get("direct_use"),
+                "海外平台新闻通常不能直接照搬，需要先做国内平台、支付、账号和合规迁移。"
+                if is_overseas
+                else "可以先在国内平台做低成本验证，但仍要检查平台规则和合规边界。",
+            ),
+            "migration_target": self._text(
+                mapping.get("migration_target"),
+                "迁移到国内内容平台、电商平台、私域服务或企业自动化服务。",
+            ),
+            "platforms": self._text(mapping.get("platforms"), platforms),
+            "personal_value": self._text(
+                mapping.get("personal_value"),
+                "有观察价值，尤其适合用来判断 AI、自动化、电商运营和内容变现是否出现新需求。",
+            ),
+        }
+
+    def _platforms(self, item: IntelligenceItem) -> str:
+        text = self._item_text(item)
+        platforms: list[str] = []
+        if any(word in text for word in ["video", "视频", "creator", "内容", "viral", "short"]):
+            platforms.extend(["抖音", "小红书", "视频号"])
+        if any(word in text for word in ["ecommerce", "commerce", "电商", "淘宝", "shop"]):
+            platforms.extend(["淘宝", "抖音", "小红书"])
+        if any(word in text for word in ["ai", "automation", "自动化", "saas", "企业"]):
+            platforms.extend(["企业服务", "公众号", "知识付费"])
+        if not platforms:
+            platforms.extend(["抖音", "小红书", "淘宝", "公众号", "企业服务"])
+        return " / ".join(dict.fromkeys(platforms))
+
+    def _opportunity_status(self, item: IntelligenceItem) -> str:
+        raw = self._text(self._opportunity(item).get("status"), "观察中")
+        if self._is_high_capital(item) or item.risk_score >= 8:
+            return "不建议碰"
+        if self._startup_cost(item) == "高" or not self._mainland_fit_bool(item):
+            return "观察中"
+        if raw in {"是", "可测试"} and self._radar_criteria_count(item) >= 3:
+            return "是"
+        if raw in {"否", "不建议碰"}:
+            return raw
+        return "观察中"
+
+    def _radar_status(self, item: IntelligenceItem) -> str:
+        if self._is_high_capital(item) or item.risk_score >= 8:
+            return "不建议碰"
+        if self._radar_criteria_count(item) >= 4:
+            return "可测试"
+        return "观察中"
+
+    def _opportunity_name(self, item: IntelligenceItem) -> str:
+        return self._text(self._opportunity(item).get("name"), item.title)
+
+    def _not_suitable_for(self, item: IntelligenceItem) -> str:
+        value = self._opportunity(item).get("not_suitable_for")
+        if self._valid(value):
+            return self._text(value)
+        if self._is_high_capital(item):
+            return "不适合缺少资本、专业团队、硬件研发或行业资质的普通人直接投入。"
+        return "不适合没有时间做需求验证、只想直接复制收益的人。"
+
+    def _first_action(self, item: IntelligenceItem) -> str:
+        opportunity = self._opportunity(item)
+        value = opportunity.get("first_action") or opportunity.get("first_step")
+        if self._valid(value) and not self._is_vague_action(str(value)):
+            return self._text(value)
+        keyword = self._keyword(item)
+        return f"今天花 30 分钟在小红书、抖音、淘宝搜索“{keyword}”，记录 10 条真实需求。"
+
+    def _three_day_action(self, item: IntelligenceItem) -> str:
+        value = self._opportunity(item).get("three_day_action")
+        if self._valid(value) and not self._is_vague_action(str(value)):
+            return self._text(value)
+        keyword = self._keyword(item)
+        return f"第 1 天收集 10 条需求，第 2 天做 1 页服务说明，第 3 天找 3 个潜在用户验证“{keyword}”是否值得付费。"
+
+    def _startup_cost(self, item: IntelligenceItem) -> str:
+        value = str(self._opportunity(item).get("startup_cost") or "")
+        text = f"{value} {self._item_text(item)}".lower()
+        if any(word.lower() in text for word in HIGH_CAPITAL_KEYWORDS):
+            return "高"
+        if any(word in value for word in ["高", "重", "大"]):
+            return "高"
+        if any(word in value for word in ["中"]):
+            return "中"
+        return "低"
+
+    def _risk_level(self, item: IntelligenceItem) -> str:
+        value = str(self._opportunity(item).get("risk_level") or "")
+        if item.risk_score >= 7 or "高" in value:
+            return "高"
+        if item.risk_score >= 4 or "中" in value:
+            return "中"
+        return "低"
+
+    def _recommendation_index(self, item: IntelligenceItem) -> int:
+        value = self._opportunity(item).get("recommendation_index")
+        match = re.search(r"\d+", str(value or ""))
+        if match:
+            return max(1, min(5, int(match.group(0))))
+        if self._is_high_capital(item) or item.risk_score >= 8:
+            return 1
+        if self._radar_criteria_count(item) >= 5:
+            return 4
+        if self._radar_criteria_count(item) >= 3:
+            return 3
+        return 2
+
+    def _mainland_fit(self, item: IntelligenceItem) -> str:
+        if self._mainland_fit_bool(item):
+            return "适合先做低成本验证，但不能照搬海外平台规则。"
+        return "不适合直接照搬，只能作为趋势观察或迁移参考。"
+
+    def _mainland_fit_bool(self, item: IntelligenceItem) -> bool:
+        return not self._depends_on_overseas_restriction(item) and not self._is_high_capital(item)
+
+    def _fit_me(self, item: IntelligenceItem) -> str:
+        text = self._item_text(item)
+        if any(word in text for word in ["ai", "自动化", "电商", "淘宝", "内容", "creator", "video", "saas"]):
+            return "适合你作为 AI、自动化、电商或内容变现方向的观察和小样验证。"
+        return "可作为趋势观察，暂不作为优先行动方向。"
+
+    def _seven_day_verifiable(self, item: IntelligenceItem) -> bool:
+        return self._has_executable_first_step(item) and self._startup_cost(item) in {"低", "中"}
+
+    def _has_clear_service_object(self, opportunity: dict) -> bool:
+        value = opportunity.get("suitable_for")
+        return self._valid(value) and "所有人" not in str(value)
+
+    def _has_executable_first_step(self, item: IntelligenceItem) -> bool:
+        action = self._first_action(item)
+        return self._valid(action) and not self._is_vague_action(action)
+
+    def _can_migrate_to_china(self, item: IntelligenceItem) -> bool:
+        return self._domestic_mapping(item)["platforms"] != FALLBACK
+
+    def _depends_on_overseas_restriction(self, item: IntelligenceItem) -> bool:
+        text = self._item_text(item).lower()
+        restricted_words = ["yc", "y combinator", "us only", "美国账号", "海外账号", "stripe", "openai credits"]
+        return any(word in text for word in restricted_words)
+
+    def _is_high_capital(self, item: IntelligenceItem) -> bool:
+        text = self._item_text(item)
+        return any(word.lower() in text.lower() for word in HIGH_CAPITAL_KEYWORDS)
+
+    def _is_overseas(self, item: IntelligenceItem) -> bool:
+        domain = urlparse(item.url or "").netloc.lower()
+        if domain.endswith(".cn") or "gov.cn" in domain:
+            return False
+        if re.search(r"[\u4e00-\u9fff]", item.title or ""):
+            return False
+        return True
+
+    def _keyword(self, item: IntelligenceItem) -> str:
+        title = re.sub(r"https?://\S+", "", item.title or "").strip()
+        words = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9+-]{2,}", title)
+        if not words:
+            return "AI 自动化 电商提效"
+        return " ".join(words[:4])
+
+    def _risk_title(self, item: IntelligenceItem) -> str:
+        return self._text(self._opportunity_name(item), item.title)
+
+    def _item_text(self, item: IntelligenceItem) -> str:
+        analysis = item.analysis
+        return " ".join(
+            [
+                str(item.title or ""),
+                str(item.summary or ""),
+                str(item.content or ""),
+                str(item.source or ""),
+                str(item.category or ""),
+                str(analysis),
+            ]
+        )
+
+    def _text(self, value, fallback: str | None = None) -> str:
+        fallback = fallback or FALLBACK
+        if isinstance(value, datetime):
+            return value.strftime("%Y-%m-%d %H:%M")
+        if not self._valid(value):
+            return fallback
+        text = str(value).strip()
+        return text if self._valid(text) else fallback
+
+    def _valid(self, value) -> bool:
+        if value is None:
+            return False
+        text = str(value).strip()
+        if not text:
+            return False
+        return text not in {"无", "/", "\\", "-", "N/A", "n/a", "None", "none", "暂无", "无。", "/。"}
+
+    def _dict(self, value) -> dict:
+        return value if isinstance(value, dict) else {}
+
+    def _is_vague_action(self, value: str) -> bool:
+        stripped = value.strip()
+        vague = {"关注", "尝试", "准备", "了解", "持续关注", "进一步了解", "观察"}
+        return stripped in vague or len(stripped) < 12
 
     def _sanitize(self, content: str) -> str:
         replacements = {
@@ -346,5 +602,45 @@ class ReportBuilder:
             content = re.sub(re.escape(phrase), phrase, content)
         return content
 
-    def _dict(self, value) -> dict:
-        return value if isinstance(value, dict) else {}
+    def _validate_report_structure(self, report: str) -> None:
+        positions = []
+        for heading in SECTION_HEADINGS:
+            count = report.count(heading)
+            if count != 1:
+                raise ValueError(f"Report structure invalid: {heading} appears {count} times")
+            positions.append(report.index(heading))
+        if positions != sorted(positions):
+            raise ValueError("Report structure invalid: section order is wrong")
+
+        section_one_start = report.index("## 一、今日最值得关注的 3-5 条变化")
+        section_two_start = report.index("## 二、今日赚钱机会雷达")
+        item_area = report[section_one_start:section_two_start]
+        item_starts = [match.start() for match in re.finditer(r"^### \d+\. ", item_area, re.M)]
+        for index, start in enumerate(item_starts):
+            end = item_starts[index + 1] if index + 1 < len(item_starts) else len(item_area)
+            block = item_area[start:end]
+            sub_positions = []
+            for subheading in ITEM_SUBHEADINGS:
+                count = block.count(subheading)
+                if count != 1:
+                    raise ValueError(
+                        f"Report structure invalid: item {index + 1} has {count} occurrences of {subheading}"
+                    )
+                sub_positions.append(block.index(subheading))
+            if sub_positions != sorted(sub_positions):
+                raise ValueError(f"Report structure invalid: item {index + 1} subheading order is wrong")
+
+        forbidden_inside_item = [
+            "## 二、今日赚钱机会雷达",
+            "## 三、今日认知升级",
+            "## 四、今日反割韭菜提醒",
+            "## 五、今日行动建议",
+        ]
+        for heading in forbidden_inside_item:
+            if heading in item_area:
+                raise ValueError(f"Report structure invalid: {heading} appears inside item area")
+
+        bad_values = [": 无", "：无", ": /", "：/", "： \n", ": \n"]
+        for value in bad_values:
+            if value in report:
+                raise ValueError(f"Report structure invalid: empty marker found {value!r}")
