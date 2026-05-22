@@ -24,8 +24,38 @@
     "name": "GDELT AI opportunity search",
     "type": "gdelt",
     "url": "https://api.gdeltproject.org/api/v2/doc/doc",
-    "query": "(AI OR artificial intelligence OR ecommerce OR SaaS OR automation OR startup)",
+    "query": "(AI OR artificial intelligence OR ecommerce OR SaaS OR automation OR startup OR creator economy OR small business)",
     "category_hint": "科技",
+    "enabled": true
+  },
+  {
+    "name": "GDELT pain point search",
+    "type": "gdelt",
+    "url": "https://api.gdeltproject.org/api/v2/doc/doc",
+    "query": "(\"how to\" OR \"struggling with\" OR \"problem with\" OR \"pain point\" OR \"small business owners\" OR \"ecommerce sellers\" OR \"content creators\" OR \"AI tools\")",
+    "category_hint": "痛点机会",
+    "enabled": true
+  },
+  {
+    "name": "Hacker News AI tools pain points",
+    "type": "rss",
+    "url": "https://hnrss.org/newest?q=AI%20tools%20workflow%20automation%20small%20business",
+    "category_hint": "痛点机会",
+    "enabled": true
+  },
+  {
+    "name": "Hacker News ecommerce creator pain points",
+    "type": "rss",
+    "url": "https://hnrss.org/newest?q=ecommerce%20creator%20marketing%20conversion%20support",
+    "category_hint": "痛点机会",
+    "enabled": true
+  },
+  {
+    "name": "可配置痛点关键词池",
+    "type": "pain_keywords",
+    "url": "pain-keyword://local",
+    "query": "孩子不好管怎么办;小孩子衣服太小普通衣架太大;小户型怎么收纳;淘宝客服回复太慢怎么办;小红书发了没人看怎么办;AI工具太多不知道怎么用;商家不会做详情页怎么办;客户老问重复问题怎么办;宠物掉毛怎么处理;上班没时间做饭怎么办",
+    "category_hint": "痛点机会",
     "enabled": true
   }
 ]

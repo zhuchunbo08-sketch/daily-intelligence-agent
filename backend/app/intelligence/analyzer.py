@@ -8,7 +8,7 @@ from app.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
 
-CATEGORIES = ["政治政策", "科技", "商业", "经济", "赚钱机会"]
+CATEGORIES = ["政治政策", "科技", "商业", "经济", "赚钱机会", "痛点机会"]
 
 
 class AnalysisService:
@@ -47,7 +47,7 @@ class AnalysisService:
 {text}
 
 JSON 字段：
-category: 政治政策/科技/商业/经济/赚钱机会
+category: 政治政策/科技/商业/经济/赚钱机会/痛点机会
 summary: 80-160字摘要
 credibility: 高/中/低
 freshness_label: 确认是过去24小时内/疑似旧闻翻新/时间不明确
@@ -71,6 +71,7 @@ domestic_mapping: object，字段包含 similar_scene, direct_use, migration_tar
 opportunity: object，字段包含 status(是/否/观察中), name, source, suitable_for, not_suitable_for, monetization, required_skills, startup_cost, path, first_action, three_day_action, risk_level, recommendation_index, mainland_fit, fit_me
 cognition: object，字段包含 old, new, judgment_change, long_term_meaning
 risk: object，字段包含 packaging_risk, traps, warning_words
+pain_point: object，字段包含 question, category(生活痛点/工作痛点/生意痛点/内容创作痛点/AI使用痛点/育儿教育痛点), audience, real_need, why_need, current_gap, product, service, content, tool, ai_automation, platforms, seven_day_action, demand_score, money_score, action_score, trend_score, risk_score
 
 推荐指数必须是 1-5 的整数。字段不能填“无”或“/”，没有明确价值时填“暂无明确价值，但可作为趋势观察”。
 如果机会需要融资、硬件研发、专业化学、气候科学、AI底层模型、巨额资本，只能标为观察中或不建议碰。
@@ -103,17 +104,46 @@ risk: object，字段包含 packaging_risk, traps, warning_words
 
     def _heuristic(self, item: CollectedItem, text: str, freshness_score: float) -> dict:
         lowered = text.lower()
-        money_keywords = ["商业", "收入", "电商", "广告", "平台", "变现", "startup", "saas", "commerce", "marketplace"]
+        pain_keywords = [
+            "怎么",
+            "怎么办",
+            "不会",
+            "太难",
+            "痛点",
+            "问题",
+            "差评",
+            "评论",
+            "客服",
+            "详情页",
+            "主图",
+            "选题",
+            "播放量",
+            "收纳",
+            "清洁",
+            "育儿",
+            "孩子",
+            "宠物",
+            "老人",
+            "prompt",
+            "how to",
+            "problem",
+            "struggling",
+            "pain point",
+        ]
+        money_keywords = ["商业", "收入", "电商", "广告", "平台", "变现", "startup", "saas", "commerce", "marketplace", "付费", "卖", "服务", "工具", "课程", "资料包"]
         trend_keywords = ["发布", "推出", "增长", "监管", "融资", "ai", "人工智能", "自动化", "政策"]
-        cognition_keywords = ["变化", "趋势", "转型", "效率", "门槛", "需求", "监管", "成本"]
+        cognition_keywords = ["变化", "趋势", "转型", "效率", "门槛", "需求", "监管", "成本", "痛点"]
         risk_keywords = BLOCKED_PHRASES + ["课程", "暴富", "副业", "收益", "返利"]
 
+        pain_score = self._keyword_score(lowered, pain_keywords)
         money_score = self._keyword_score(lowered, money_keywords)
         trend_score = self._keyword_score(lowered, trend_keywords)
         cognition_score = self._keyword_score(lowered, cognition_keywords)
-        actionability_score = min(8, (money_score + cognition_score) / 2)
+        actionability_score = min(8, (money_score + cognition_score + pain_score) / 3)
         risk_score = self._keyword_score(lowered, risk_keywords)
         category = self._guess_category(item)
+        if pain_score >= 4 or item.category_hint == "痛点机会":
+            category = "痛点机会"
         has_risk = risk_score >= 5 or contains_blocked_phrase(text)
         result = {
             "category": category,
@@ -121,7 +151,7 @@ risk: object，字段包含 packaging_risk, traps, warning_words
             "credibility": "中",
             "freshness_label": "确认是过去24小时内",
             "is_trustworthy": not has_risk,
-            "has_money_opportunity": money_score >= 5,
+            "has_money_opportunity": money_score >= 5 or (category == "痛点机会" and pain_score >= 4),
             "has_cognition_value": cognition_score >= 5,
             "has_cutting_risk": has_risk,
             "worth_pushing": not has_risk,
@@ -150,6 +180,26 @@ risk: object，字段包含 packaging_risk, traps, warning_words
                 "migration_target": "迁移到国内内容平台、电商平台、私域服务或企业自动化服务。",
                 "platforms": "抖音 / 小红书 / 淘宝 / 视频号 / 公众号 / 知识付费 / 企业服务",
                 "personal_value": "有观察价值，尤其适合判断 AI、自动化、电商运营和内容变现是否出现新需求。",
+            },
+            "pain_point": {
+                "question": item.title,
+                "category": self._guess_pain_category(text),
+                "audience": self._guess_audience(text),
+                "real_need": "用户想更省时间、更省心或更低成本地解决这个具体问题。",
+                "why_need": "它对应重复出现的生活、工作、生意或内容创作问题，具备被商品、服务、内容或工具承接的可能。",
+                "current_gap": "现有方案往往太泛，不够场景化，用户不知道该买什么、怎么做、找谁解决。",
+                "product": "可以做低价小商品、资料包、模板或清单。",
+                "service": "可以做诊断、代设置、陪跑、整理或一对一解决服务。",
+                "content": "可以做小红书/抖音系列内容：真实问题、对比方案、避坑清单。",
+                "tool": "可以做表格、清单、计算器、流程模板或轻量工具。",
+                "ai_automation": "可以用 AI 做问答助手、自动回复、文案生成、资料整理或流程自动化。",
+                "platforms": "小红书 / 抖音 / 淘宝 / 拼多多 / 公众号 / 1688",
+                "seven_day_action": "今天在小红书、淘宝、拼多多搜索相关关键词，记录前 20 个结果的价格、差评痛点和卖点。",
+                "demand_score": min(10, pain_score + 2),
+                "money_score": money_score,
+                "action_score": actionability_score,
+                "trend_score": trend_score,
+                "risk_score": risk_score,
             },
             "opportunity": {
                 "status": "观察中" if money_score >= 5 else "否",
@@ -195,7 +245,35 @@ risk: object，字段包含 packaging_risk, traps, warning_words
             return "经济"
         if any(word in text for word in ["赚钱", "变现", "副业", "opportunity"]):
             return "赚钱机会"
+        if any(word in text for word in ["痛点", "问题", "怎么", "怎么办", "how to", "struggling", "pain point"]):
+            return "痛点机会"
         return item.category_hint or "商业"
+
+    def _guess_pain_category(self, text: str) -> str:
+        lowered = text.lower()
+        if any(word in lowered for word in ["孩子", "宝宝", "育儿", "作业", "parent", "kid"]):
+            return "育儿教育痛点"
+        if any(word in lowered for word in ["淘宝", "客服", "详情页", "主图", "选品", "ecommerce", "shop"]):
+            return "生意痛点"
+        if any(word in lowered for word in ["小红书", "抖音", "播放量", "剪辑", "creator", "video"]):
+            return "内容创作痛点"
+        if any(word in lowered for word in ["ai", "prompt", "自动化", "workflow"]):
+            return "AI使用痛点"
+        if any(word in lowered for word in ["办公", "效率", "表格", "资料", "工作"]):
+            return "工作痛点"
+        return "生活痛点"
+
+    def _guess_audience(self, text: str) -> str:
+        lowered = text.lower()
+        if any(word in lowered for word in ["孩子", "宝宝", "育儿", "parent", "kid"]):
+            return "宝妈、家长、老师或学生"
+        if any(word in lowered for word in ["淘宝", "客服", "电商", "ecommerce", "shop"]):
+            return "淘宝/拼多多/抖音电商卖家"
+        if any(word in lowered for word in ["creator", "video", "小红书", "抖音"]):
+            return "内容创作者和小商家"
+        if any(word in lowered for word in ["ai", "prompt", "workflow", "自动化"]):
+            return "想用 AI 提效的职场人、小团队或个体户"
+        return "有具体生活、工作或经营问题的人群"
 
     def _keyword_score(self, text: str, keywords: list[str]) -> float:
         hits = sum(1 for keyword in keywords if keyword.lower() in text)

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.collectors.base import CollectedItem, SourceConfig
 from app.collectors.gdelt_collector import GDELTCollector
+from app.collectors.pain_keywords_collector import PainKeywordsCollector
 from app.collectors.rss_collector import RSSCollector
 from app.core.config import get_settings
 from app.db.models import Source
@@ -19,6 +20,7 @@ class SourceRegistry:
         self.collectors = {
             "rss": RSSCollector(),
             "gdelt": GDELTCollector(),
+            "pain_keywords": PainKeywordsCollector(),
         }
 
     def sync_sources(self, db: Session) -> None:
