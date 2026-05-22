@@ -197,6 +197,9 @@ PAIN_KEYWORDS = [
     "pain point",
 ]
 FORBIDDEN_ACTIONS = {"关注", "了解", "尝试", "准备", "观察", "持续关注", "进一步了解"}
+NO_HISTORY_REFERENCE = "暂无明确可比历史阶段，本条更适合作为趋势观察。"
+NO_ACTION = "暂不建议行动，本条只做趋势观察。"
+NO_THREE_DAY_ACTION = "不建议做 3 天动作，本条只做趋势观察。"
 
 
 class ReportBuilder:
@@ -289,12 +292,8 @@ class ReportBuilder:
             "#### 我的理解",
             self._understanding(item),
             "",
-            "#### 历史类比 / 发达国家参照",
-            f"- 可比案例：{self._historical_field(item, 'comparable_case')}",
-            f"- 发生时期：{self._historical_field(item, 'period')}",
-            f"- 当时带来的机会：{self._historical_field(item, 'opportunities')}",
-            f"- 中国现在是否类似：{self._historical_field(item, 'china_stage')}",
-            f"- 对普通人的启发：{self._historical_field(item, 'insight')}",
+            "#### 历史类比 / 成熟市场参照",
+            *self._render_historical_reference(item),
             "",
             "#### 认知破界",
             f"- 大多数人的误解：{self._breakthrough_field(item, 'common_misread')}",
@@ -311,7 +310,7 @@ class ReportBuilder:
         if not items:
             return ["今天没有符合“普通人或小团队 7 天内可验证、低/中成本、风险不高”的新闻机会。"]
         lines: list[str] = []
-        for item in items[:5]:
+        for item in items[:3]:
             lines.extend(
                 [
                     f"- 机会名称：{self._opportunity_name(item)}",
@@ -404,16 +403,19 @@ class ReportBuilder:
     ) -> list[str]:
         actions: list[str] = []
         for item in pain_items[:2]:
-            actions.append(f"- {self._pain_action(item)}")
+            action = self._pain_action(item)
+            if action != NO_ACTION:
+                actions.append(f"- {action}")
         if radar_items:
-            actions.append(f"- {self._first_action(radar_items[0])}")
-        elif change_items:
-            keyword = self._keyword(change_items[0])
-            actions.append(
-                f"- 今天在小红书、淘宝、抖音分别搜索“{keyword}”，记录 20 条笔记/商品/视频的价格、评论痛点和成交形式。"
-            )
+            action = self._first_action(radar_items[0])
+            if action != NO_ACTION:
+                actions.append(f"- {action}")
+        elif change_items and self._should_generate_action(change_items[0]):
+            action = self._first_action(change_items[0])
+            if action != NO_ACTION:
+                actions.append(f"- {action}")
         if not actions:
-            actions.append("- 今天用 30 分钟新增 3 个痛点类数据源，并记录每个来源最近 10 个问题标题。")
+            actions.append("- 今天用 30 分钟整理 3 个真实痛点问题，只记录人群、场景、现有方案和是否有人付费，不急着行动。")
         return actions[:3]
 
     def _change_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
@@ -428,17 +430,31 @@ class ReportBuilder:
 
     def _radar_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
         selected: list[IntelligenceItem] = []
-        for item in sorted(items, key=lambda x: x.final_score, reverse=True):
+        for item in sorted(items, key=lambda x: (self._radar_priority(x), x.final_score), reverse=True):
             if self._is_pain_item(item):
-                continue
-            if self._change_filter_reason(item):
+                if self._pain_filter_reason(item):
+                    continue
+            elif self._change_filter_reason(item):
                 continue
             if self._is_high_capital(item) or self._is_non_ordinary_opportunity(item) or item.risk_score >= 7:
+                continue
+            if not self._should_generate_action(item):
                 continue
             if self._radar_criteria_count(item) < 5:
                 continue
             selected.append(item)
-        return selected[:5]
+        return selected[:3]
+
+    def _radar_priority(self, item: IntelligenceItem) -> int:
+        if self._is_pain_item(item):
+            return 5
+        if self._is_service_or_tool_opportunity(item):
+            return 4
+        if any(word in self._item_text(item).lower() for word in ["商品", "收纳", "宠物", "厨房", "衣架", "1688"]):
+            return 3
+        if any(word in self._item_text(item).lower() for word in ["内容", "资料包", "模板", "课程"]):
+            return 2
+        return 1
 
     def _pain_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
         selected: list[IntelligenceItem] = []
@@ -538,7 +554,7 @@ class ReportBuilder:
         change_items: list[IntelligenceItem],
     ) -> str:
         if pain_items:
-            return self._pain_action(pain_items[0])
+            return self._specific_first_action(pain_items[0])
         if radar_items:
             return self._first_action(radar_items[0])
         if change_items:
@@ -551,7 +567,11 @@ class ReportBuilder:
         trend = self._sentence(self._cognition(item).get("new"), "背后说明需求正在从泛泛关注转向可落地的工具、服务或内容。")
         domestic = self._domestic_value(item)
         avoid = "不要直接照搬海外平台、资本密集型项目或没有明确人群的概念。"
-        return f"表面上看，这是“{title}”。{trend} 它现在出现，通常和成本下降、效率提升、平台规则变化或用户需求变得更具体有关。普通人真正能借鉴的是先找国内相似场景，再用低成本小样验证需求。{domestic} {avoid}"
+        if self._should_generate_action(item):
+            ordinary = "普通人真正能借鉴的是找到具体人群、具体场景和一个低成本小样。"
+        else:
+            ordinary = "普通人暂时不必急着行动，先判断它是否真的改变平台规则、成本结构或用户需求。"
+        return f"表面上看，这是“{title}”。{trend} 它现在出现，通常和成本下降、效率提升、平台规则变化或用户需求变得更具体有关。{ordinary}{domestic} {avoid}"
 
     def _title_zh(self, item: IntelligenceItem) -> str:
         title = self._text(item.title)
@@ -610,26 +630,34 @@ class ReportBuilder:
 
     def _domestic_value(self, item: IntelligenceItem) -> str:
         mapping = item.analysis.get("domestic_mapping")
-        if isinstance(mapping, dict) and self._valid(mapping.get("personal_value")):
+        if (
+            isinstance(mapping, dict)
+            and self._valid(mapping.get("personal_value"))
+            and not self._is_generic_domestic_mapping(mapping.get("personal_value"))
+        ):
             return self._text(mapping.get("personal_value"))
+        if self._is_overseas(item) and not self._should_generate_action(item):
+            return "国内暂无直接迁移平台，先作为趋势观察。"
         platforms = self._platforms(item)
+        if not platforms:
+            return "国内暂无直接迁移平台，先作为趋势观察。"
         if self._is_overseas(item):
             return f"不能照搬海外平台，但可迁移到{platforms}做需求验证。"
         return f"可在{platforms}做低成本验证。"
 
     def _platforms(self, item: IntelligenceItem) -> str:
-        text = self._item_text(item).lower()
+        text = (self._pain_signal_text(item) if self._is_pain_item(item) else self._raw_item_text(item)).lower()
         platforms: list[str] = []
-        if any(word in text for word in ["孩子", "育儿", "收纳", "宠物", "清洁", "做饭", "穿搭"]):
-            platforms.extend(["小红书", "淘宝", "拼多多", "抖音"])
-        if any(word in text for word in ["客服", "详情页", "主图", "选品", "电商", "商家", "客户", "ecommerce"]):
-            platforms.extend(["淘宝", "拼多多", "抖音", "1688"])
-        if any(word in text for word in ["内容", "选题", "播放量", "剪辑", "creator", "video"]):
-            platforms.extend(["小红书", "抖音", "视频号", "公众号"])
-        if any(word in text for word in ["ai", "prompt", "自动化", "办公", "效率", "workflow"]):
-            platforms.extend(["企业服务", "公众号", "知识付费", "小红书"])
-        if not platforms:
-            platforms.extend(["小红书", "抖音", "淘宝", "公众号"])
+        if self._depends_on_overseas_restriction(item) or (self._is_overseas(item) and not self._has_ordinary_relevance(item)):
+            return ""
+        if any(word in text for word in ["衣架", "收纳", "宠物", "清洁", "厨房", "做饭", "穿搭", "小商品", "货源"]):
+            platforms.extend(["淘宝", "拼多多", "1688", "小红书测评", "抖音带货"])
+        if any(word in text for word in ["孩子", "育儿", "家长", "内容", "选题", "播放量", "剪辑", "creator", "video", "知识"]):
+            platforms.extend(["小红书", "抖音", "视频号", "公众号", "B站"])
+        if any(word in text for word in ["客服", "详情页", "主图", "选品", "电商", "商家", "客户", "代运营", "诊断", "服务", "ecommerce"]):
+            platforms.extend(["微信私域", "飞书", "淘宝服务市场", "本地生活", "公众号"])
+        if any(word in text for word in ["ai", "ai工具", "prompt", "自动化", "办公", "效率", "workflow", "表格", "知识库"]):
+            platforms.extend(["SaaS", "小程序", "飞书多维表格", "Notion 模板", "浏览器插件", "企业服务"])
         return " / ".join(dict.fromkeys(platforms))
 
     def _opportunity_name(self, item: IntelligenceItem) -> str:
@@ -673,25 +701,102 @@ class ReportBuilder:
         return "低"
 
     def _first_action(self, item: IntelligenceItem) -> str:
+        if not self._should_generate_action(item):
+            return NO_ACTION
         raw = self._opportunity(item).get("first_action") or self._opportunity(item).get("first_step")
-        if self._valid_action(raw) and "相关关键词" not in str(raw) and "保存来源链接" not in str(raw):
+        if self._valid_action(raw) and not self._is_generic_action(raw):
             return self._text(raw)
-        keyword = self._keyword(item)
-        return f"今天在小红书、淘宝、抖音分别搜索“{keyword}”，记录 20 条笔记/商品/视频的价格、评论痛点和成交形式。"
+        return self._specific_first_action(item)
 
     def _three_day_action(self, item: IntelligenceItem) -> str:
+        if not self._should_generate_action(item):
+            return NO_THREE_DAY_ACTION
         raw = self._opportunity(item).get("three_day_action")
-        if self._valid_action(raw) and "相关关键词" not in str(raw):
+        if self._valid_action(raw) and not self._is_generic_action(raw):
             return self._text(raw)
-        keyword = self._keyword(item)
-        return f"第 1 天整理 20 条需求，第 2 天做 1 个一页纸小样，第 3 天找 3 个目标用户验证“{keyword}”是否愿意付费。"
+        return self._specific_three_day_action(item)
 
     def _pain_action(self, item: IntelligenceItem) -> str:
+        if not self._should_generate_action(item):
+            return NO_ACTION
         raw = self._pain(item).get("seven_day_action")
-        if self._valid_action(raw) and "相关关键词" not in str(raw):
+        if self._valid_action(raw) and not self._is_generic_action(raw):
             return self._text(raw)
+        return self._specific_three_day_action(item)
+
+    def _should_generate_action(self, item: IntelligenceItem) -> bool:
+        if self._startup_cost(item) == "高" or self._risk_level(item) == "高":
+            return False
+        if self._is_high_capital(item) or self._is_non_ordinary_opportunity(item):
+            return False
+        if self._depends_on_overseas_restriction(item) or self._has_complex_rights_risk(item):
+            return False
+        if not self._platforms(item):
+            return False
+        if self._is_pain_item(item):
+            return self._has_clear_service_object(item) and item.money_score >= 2
+        status = str(self._opportunity(item).get("status") or "")
+        if "否" in status or "不建议" in status:
+            return False
+        return self._has_ordinary_relevance(item) and self._has_clear_service_object(item)
+
+    def _specific_first_action(self, item: IntelligenceItem) -> str:
+        action = self._specific_three_day_action(item)
+        if action in {NO_ACTION, NO_THREE_DAY_ACTION}:
+            return NO_ACTION
+        return action.split("\n\n", 1)[0].replace("第 1 天：\n", "").strip()
+
+    def _specific_three_day_action(self, item: IntelligenceItem) -> str:
+        if not self._should_generate_action(item):
+            return NO_THREE_DAY_ACTION
+        text = (self._pain_signal_text(item) if self._is_pain_item(item) else self._item_text(item)).lower()
+        if any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库"]):
+            return (
+                "第 1 天：在淘宝、小红书、抖音搜索“AI客服自动回复 / 客服话术模板 / 店铺自动回复 / 常见问题知识库”，记录 20 个商品或服务的价格、差评和卖点。\n\n"
+                "第 2 天：选一个细分场景，比如淘宝女装客服、母婴店客服或本地家政客服，整理 30 条常见问答，做成一个飞书表格或文档小样。\n\n"
+                "第 3 天：找 3 个淘宝商家或小老板看样品，问是否愿意付 99-299 元买一套客服话术库或自动回复配置服务。"
+            )
+        if any(word in text for word in ["宠物掉毛", "猫毛", "除毛", "粘毛"]):
+            return (
+                "第 1 天：在淘宝、拼多多、小红书搜索“宠物掉毛怎么办 / 猫毛清理神器 / 宠物除毛刷 / 粘毛器测评”，记录价格、销量和差评。\n\n"
+                "第 2 天：找 3 个差评集中点，比如不耐用、清不干净、伤宠物或不好收纳，整理成选品表。\n\n"
+                "第 3 天：在 1688 找 3 个候选货源，做一个小红书测评选题或淘宝商品差异化卖点草稿。"
+            )
+        if any(word in text for word in ["详情页", "主图", "选品", "店铺", "商家"]):
+            return (
+                "第 1 天：在淘宝服务市场、小红书和抖音搜索“详情页诊断 / 主图优化 / 店铺转化率”，记录 20 个服务的价格、交付内容和差评。\n\n"
+                "第 2 天：选一个细分店铺类型，整理 3 个详情页问题和 1 页改版建议小样。\n\n"
+                "第 3 天：找 3 个小商家看样品，验证是否愿意为 99-299 元的诊断或改版清单付费。"
+            )
+        if any(word in text for word in ["ai工具", "ai 工具", "prompt", "自动化", "工作流"]):
+            return (
+                "第 1 天：在小红书、公众号和飞书模板库搜索“AI工作流 / Prompt 模板 / 自动化表格”，记录 20 个具体场景和付费形式。\n\n"
+                "第 2 天：选一个场景，比如客服回复、选题整理或商品评论分析，做一个飞书多维表格或 Notion 模板小样。\n\n"
+                "第 3 天：找 3 个职场人或小老板试用，问是否愿意为模板配置或代搭建服务付费。"
+            )
+        if any(word in text for word in ["孩子", "育儿", "家长", "作业", "习惯"]):
+            return (
+                "第 1 天：在小红书和淘宝搜索“行为奖励表 / 亲子任务卡 / 作息打卡表 / 孩子习惯养成”，记录 20 个笔记或商品的价格、评论和痛点。\n\n"
+                "第 2 天：做一页可打印家庭任务卡或奖励表小样，避免制造家长焦虑。\n\n"
+                "第 3 天：找 3 位家长试用，问是否愿意为 9.9-29.9 元资料包付费。"
+            )
+        if any(word in text for word in ["收纳", "衣架", "小户型", "厨房", "清洁", "做饭"]):
+            return (
+                "第 1 天：在淘宝、拼多多、1688 和小红书搜索对应小商品关键词，记录价格、销量、差评和使用场景。\n\n"
+                "第 2 天：把差评按尺寸、耐用、收纳、颜值和场景分类，找 3 个可差异化卖点。\n\n"
+                "第 3 天：选 3 个候选货源，写一版小红书测评选题和淘宝商品卖点草稿。"
+            )
+        if any(word in text for word in ["小红书", "抖音", "播放量", "选题", "剪辑", "内容"]):
+            return (
+                "第 1 天：在小红书、抖音和 B 站搜索同类账号诊断、选题库和剪辑模板，记录 20 个付费服务或模板。\n\n"
+                "第 2 天：选一个垂直人群，做 10 个选题标题和 1 个内容日历小样。\n\n"
+                "第 3 天：找 3 个创作者看样品，验证是否愿意为选题诊断或内容模板付费。"
+            )
+        platforms = self._platforms(item)
         keyword = self._keyword(item)
-        return f"今天在小红书、淘宝、拼多多搜索“{keyword}”，记录前 20 个结果的价格、差评痛点和卖点，判断能否做一个低价小样。"
+        if not platforms:
+            return NO_THREE_DAY_ACTION
+        return f"第 1 天：在{platforms}搜索“{keyword}”相关真实商品、服务或内容，记录 20 条价格、评论痛点和交付形式。\n\n第 2 天：整理一个 1 页小样或服务说明，只保留目标人群、痛点和交付结果。\n\n第 3 天：找 3 个目标用户验证是否愿意付费。"
 
     def _pain_need(self, item: IntelligenceItem) -> str:
         return f"目标人群想更省时间、更省心或更低成本地解决“{self._keyword(item)}”相关问题。"
@@ -712,17 +817,62 @@ class ReportBuilder:
         return f"用 AI 做问答助手、自动回复、文案生成、资料整理或流程自动化。"
 
     def _pain_platforms(self, item: IntelligenceItem) -> str:
-        return self._platforms(item)
+        return self._platforms(item) or "暂不建议绑定具体平台，先观察需求是否真实。"
+
+    def _render_historical_reference(self, item: IntelligenceItem) -> list[str]:
+        if not self._should_render_historical_reference(item):
+            return [self._historical_observation_line(item)]
+        return [
+            f"- 可比阶段：{self._historical_field(item, 'comparable_case')}",
+            f"- 当时带来的机会：{self._historical_field(item, 'opportunities')}",
+            f"- 中国是否类似：{self._historical_field(item, 'china_stage')}",
+            f"- 对普通人的启发：{self._historical_field(item, 'insight')}",
+        ]
+
+    def _should_render_historical_reference(self, item: IntelligenceItem) -> bool:
+        historical = self._historical(item)
+        if self._valid(historical.get("comparable_case")) and not self._is_generic_reference(historical.get("comparable_case")):
+            return self._historical_match_kind(item) is not None or self._has_actionable_stage_signal(item)
+        return self._historical_match_kind(item) is not None
+
+    def _historical_match_kind(self, item: IntelligenceItem) -> str | None:
+        text = self._raw_item_text(item).lower()
+        if self._is_high_capital(item) or self._is_non_ordinary_opportunity(item) or self._has_complex_rights_risk(item):
+            return None
+        if any(word in text for word in ["audiobook", "podcast", "elevenlabs", "有声书", "播客", "音频"]):
+            return "audio_content"
+        if any(word in text for word in ["收纳", "衣架", "小户型", "厨房小物", "家居小物"]):
+            return "home_goods"
+        if any(word in text for word in ["reward chart", "routine cards", "behavior chart", "孩子不好管", "家庭任务卡", "行为奖励表"]):
+            return "parenting_tools"
+        if any(word in text for word in ["客服", "详情页", "主图", "shopify", "saas", "知识库", "自动回复"]):
+            return "smb_saas"
+        if any(word in text for word in ["search", "google", "搜索入口", "ai 搜索", "垂直搜索"]):
+            return "search_entry"
+        return None
+
+    def _has_actionable_stage_signal(self, item: IntelligenceItem) -> bool:
+        text = self._raw_item_text(item).lower()
+        return any(word in text for word in ["阶段", "生态", "插件", "订阅", "工作流", "工具化", "细分品类"])
+
+    def _historical_observation_line(self, item: IntelligenceItem) -> str:
+        if self._is_overseas(item) and not self._can_migrate_to_china(item):
+            return "暂无必要类比，本条主要看海外平台规则变化。"
+        return NO_HISTORY_REFERENCE
 
     def _historical_field(self, item: IntelligenceItem, key: str) -> str:
         historical = self._historical(item)
-        if self._valid(historical.get(key)) and not self._is_generic_reference(historical.get(key)):
+        if (
+            self._valid(historical.get(key))
+            and not self._is_generic_reference(historical.get(key))
+            and not self._is_generic_reference(historical.get("comparable_case"))
+        ):
             return self._sentence(historical.get(key), FALLBACK)
         fallback = self._historical_fallback(item)
         return fallback[key]
 
     def _historical_fallback(self, item: IntelligenceItem) -> dict[str, str]:
-        text = self._item_text(item).lower()
+        text = self._raw_item_text(item).lower()
         title = self._title_zh(item)
         if any(word in text for word in ["audiobook", "podcast", "spotify", "音频", "有声书", "播客"]):
             return {
@@ -788,7 +938,7 @@ class ReportBuilder:
         return fallback[key]
 
     def _breakthrough_fallback(self, item: IntelligenceItem) -> dict[str, str]:
-        text = self._item_text(item).lower()
+        text = self._raw_item_text(item).lower()
         title = self._title_zh(item)
         if any(word in text for word in ["audiobook", "podcast", "spotify", "音频", "有声书", "播客"]):
             return {
@@ -879,6 +1029,7 @@ class ReportBuilder:
         text = str(value or "")
         generic_markers = [
             "暂无明确历史类比",
+            "暂无明确可比历史阶段",
             "暂无明确成熟市场参照",
             "时间阶段不明确",
             "产业逻辑上理解",
@@ -943,7 +1094,8 @@ class ReportBuilder:
         return self._has_ordinary_relevance(item)
 
     def _has_executable_first_step(self, item: IntelligenceItem) -> bool:
-        return self._valid_action(self._first_action(item))
+        raw = self._opportunity(item).get("first_action") or self._pain(item).get("seven_day_action")
+        return self._should_generate_action(item) and (self._valid_action(raw) or bool(self._platforms(item)))
 
     def _can_migrate_to_china(self, item: IntelligenceItem) -> bool:
         return bool(self._platforms(item))
@@ -959,6 +1111,31 @@ class ReportBuilder:
     def _is_non_ordinary_opportunity(self, item: IntelligenceItem) -> bool:
         text = self._filter_text(item).lower()
         return self._contains_any_keyword(text, NON_ORDINARY_OPPORTUNITY_KEYWORDS)
+
+    def _is_service_or_tool_opportunity(self, item: IntelligenceItem) -> bool:
+        text = (self._pain_signal_text(item) if self._is_pain_item(item) else self._raw_item_text(item)).lower()
+        return any(
+            word in text
+            for word in [
+                "客服",
+                "详情页",
+                "主图",
+                "自动回复",
+                "知识库",
+                "ai工具",
+                "ai 工具",
+                "prompt",
+                "自动化",
+                "工作流",
+                "模板",
+                "诊断",
+                "服务",
+            ]
+        )
+
+    def _has_complex_rights_risk(self, item: IntelligenceItem) -> bool:
+        text = self._raw_item_text(item).lower()
+        return any(word in text for word in ["版权", "授权", "分成", "universal music", "环球音乐", "remix", "cover", "翻唱", "混音"])
 
     def _contains_any_keyword(self, text: str, keywords: list[str]) -> bool:
         return any(self._contains_keyword(text, keyword) for keyword in keywords)
@@ -1000,6 +1177,17 @@ class ReportBuilder:
                 str(item.source or ""),
                 str(item.category or ""),
                 str(item.analysis or ""),
+            ]
+        )
+
+    def _raw_item_text(self, item: IntelligenceItem) -> str:
+        return " ".join(
+            [
+                str(item.title or ""),
+                str(item.summary or ""),
+                str(item.content or ""),
+                str(item.source or ""),
+                str(item.category or ""),
             ]
         )
 
@@ -1051,9 +1239,39 @@ class ReportBuilder:
         text = str(value).strip()
         if text in FORBIDDEN_ACTIONS:
             return False
+        if "不建议" in text or "暂不建议" in text or "只做趋势观察" in text:
+            return False
         if len(text) < 18:
             return False
         return any(word in text for word in ["搜索", "记录", "找", "做", "整理", "验证", "表格", "小样", "平台"])
+
+    def _is_generic_action(self, value) -> bool:
+        text = str(value or "")
+        generic_markers = [
+            "相关关键词",
+            "保存来源链接",
+            "找 3 个真实用户或商家验证需求",
+            "收集 10 条需求",
+            "做 1 页服务说明",
+            "与环球音乐达成协议",
+            "允许订阅用户使用",
+            "暂不建议行动",
+            "不建议做 3 天动作",
+            "只做趋势观察",
+        ]
+        return any(marker in text for marker in generic_markers)
+
+    def _is_generic_domestic_mapping(self, value) -> bool:
+        text = str(value or "")
+        generic_markers = [
+            "抖音、小红书、淘宝、视频号",
+            "国内内容平台、电商平台、私域服务",
+            "AI、自动化、电商运营和内容变现",
+            "有观察价值",
+            "不能直接照搬",
+            "国内暂无直接迁移平台",
+        ]
+        return any(marker in text for marker in generic_markers)
 
     def _sanitize(self, content: str) -> str:
         replacements = {
@@ -1095,12 +1313,7 @@ class ReportBuilder:
         for block in change_blocks:
             required = [
                 "#### 我的理解",
-                "#### 历史类比 / 发达国家参照",
-                "- 可比案例：",
-                "- 发生时期：",
-                "- 当时带来的机会：",
-                "- 中国现在是否类似：",
-                "- 对普通人的启发：",
+                "#### 历史类比 / 成熟市场参照",
                 "#### 认知破界",
                 "- 大多数人的误解：",
                 "- 高认知视角：",
@@ -1112,6 +1325,14 @@ class ReportBuilder:
             if missing:
                 title = block.splitlines()[0] if block.splitlines() else "unknown"
                 raise ValueError(f"Report structure invalid: {title} missing {missing}")
+            has_structured_history = all(
+                marker in block
+                for marker in ["- 可比阶段：", "- 当时带来的机会：", "- 中国是否类似：", "- 对普通人的启发："]
+            )
+            has_observation_history = NO_HISTORY_REFERENCE in block or "暂无必要类比" in block
+            if not has_structured_history and not has_observation_history:
+                title = block.splitlines()[0] if block.splitlines() else "unknown"
+                raise ValueError(f"Report structure invalid: {title} has invalid history section")
 
         pain_area = report[report.index(SECTION_HEADINGS[3]) : report.index(SECTION_HEADINGS[4])]
         pain_blocks = re.findall(r"(?ms)^### 痛点 \d+：.*?(?=^### 痛点 \d+：|^## 四、|\Z)", pain_area)
