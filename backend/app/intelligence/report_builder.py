@@ -244,10 +244,10 @@ class ReportBuilder:
             "",
             "## 先说结论",
             f"- 今天最重要的趋势：{self._headline(change_items, '没有发现足够重要且可落地的趋势变化')}",
-            f"- 今天最值得看的机会：{self._headline(radar_items, '没有发现普通人 7 天内能验证的明确机会')}",
+            f"- 今天最值得看的机会：{self._opportunity_headline(radar_items, pain_items)}",
             f"- 今天最值得关注的痛点：{self._pain_headline(pain_items)}",
             f"- 今天最值得避开的坑：{self._risk_headline(risk_items)}",
-            f"- 今天我建议你做的一件事：{self._one_action(pain_items, radar_items, change_items)}",
+            f"- 今天我建议你做的一件事：{self._conclusion_action(pain_items, radar_items, change_items)}",
             "",
             "## 一、今日最值得关注的 3 条变化",
             "",
@@ -402,21 +402,18 @@ class ReportBuilder:
         change_items: list[IntelligenceItem],
     ) -> list[str]:
         actions: list[str] = []
-        for item in pain_items[:2]:
-            action = self._pain_action(item)
-            if action != NO_ACTION:
-                actions.append(f"- {action}")
-        if radar_items:
-            action = self._first_action(radar_items[0])
-            if action != NO_ACTION:
-                actions.append(f"- {action}")
+        primary = self._best_action_item(pain_items, radar_items)
+        if primary:
+            action = self._three_day_action(primary) if primary in radar_items else self._pain_action(primary)
+            if action != NO_ACTION and action != NO_THREE_DAY_ACTION:
+                actions.append(f"1. 今天先验证“{self._action_theme(primary)}”这个痛点：\n{action}")
         elif change_items and self._should_generate_action(change_items[0]):
             action = self._first_action(change_items[0])
             if action != NO_ACTION:
-                actions.append(f"- {action}")
+                actions.append(f"1. {action}")
         if not actions:
-            actions.append("- 今天用 30 分钟整理 3 个真实痛点问题，只记录人群、场景、现有方案和是否有人付费，不急着行动。")
-        return actions[:3]
+            actions.append("1. 今天用 30 分钟整理 3 个真实痛点问题，只记录人群、场景、现有方案和是否有人付费，不急着行动。")
+        return self._dedupe_lines(actions)[:2]
 
     def _change_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
         candidates: list[IntelligenceItem] = []
@@ -447,7 +444,7 @@ class ReportBuilder:
 
     def _radar_priority(self, item: IntelligenceItem) -> int:
         if self._is_pain_item(item):
-            return 5
+            return 10 + self._pain_priority(item)
         if self._is_service_or_tool_opportunity(item):
             return 4
         if any(word in self._item_text(item).lower() for word in ["商品", "收纳", "宠物", "厨房", "衣架", "1688"]):
@@ -458,7 +455,7 @@ class ReportBuilder:
 
     def _pain_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
         selected: list[IntelligenceItem] = []
-        for item in sorted(items, key=lambda x: x.final_score, reverse=True):
+        for item in sorted(items, key=lambda x: (self._pain_priority(x), x.final_score), reverse=True):
             if not self._is_pain_item(item):
                 continue
             reason = self._pain_filter_reason(item)
@@ -467,6 +464,18 @@ class ReportBuilder:
                 continue
             selected.append(item)
         return selected[:3]
+
+    def _pain_priority(self, item: IntelligenceItem) -> int:
+        text = self._raw_item_text(item).lower()
+        if any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库", "回复太慢"]):
+            return 5
+        if any(word in text for word in ["详情页", "主图", "店铺", "商家"]):
+            return 4
+        if any(word in text for word in ["ai工具", "ai 工具", "prompt", "自动化"]):
+            return 3
+        if any(word in text for word in ["孩子", "育儿", "家长"]):
+            return 2
+        return 1
 
     def _change_filter_reason(self, item: IntelligenceItem) -> str | None:
         text = self._item_text(item).lower()
@@ -535,17 +544,23 @@ class ReportBuilder:
     def _headline(self, items: list[IntelligenceItem], fallback: str) -> str:
         if not items:
             return fallback
-        return self._title_zh(items[0])
+        return self._brief(self._title_zh(items[0]), fallback)
+
+    def _opportunity_headline(self, radar_items: list[IntelligenceItem], pain_items: list[IntelligenceItem]) -> str:
+        source = next((item for item in radar_items if self._is_pain_item(item)), None) or self._best_action_item(pain_items, radar_items)
+        if not source:
+            return "没有发现普通人 7 天内能验证的明确机会"
+        return self._brief(self._opportunity_name(source), "没有发现普通人 7 天内能验证的明确机会")
 
     def _pain_headline(self, items: list[IntelligenceItem]) -> str:
         if not items:
             return "没有筛出足够具体、可变现的高频痛点"
-        return self._pain_title(items[0])
+        return self._brief(self._pain_title(items[0]), "没有筛出足够具体、可变现的高频痛点")
 
     def _risk_headline(self, items: list[IntelligenceItem]) -> str:
         if not items:
             return "高收益副业包装、刷单、拉人头和不透明代运营"
-        return self._risk_title(items[0])
+        return self._brief(self._risk_title(items[0]), "高收益副业包装、刷单、拉人头和不透明代运营")
 
     def _one_action(
         self,
@@ -561,6 +576,45 @@ class ReportBuilder:
             keyword = self._keyword(change_items[0])
             return f"今天在小红书和淘宝搜索“{keyword}”，记录 20 条评论痛点和可付费场景。"
         return "今天新增 3 个痛点类数据源，并记录 10 个真实问题标题。"
+
+    def _conclusion_action(
+        self,
+        pain_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+        change_items: list[IntelligenceItem],
+    ) -> str:
+        item = self._best_action_item(pain_items, radar_items)
+        if item:
+            theme = self._action_theme(item)
+            return self._brief(
+                f"先验证“{theme}”：搜价格差评，做飞书表格小样，找 3 个商家问付费意愿。",
+                f"今天先验证“{theme}”这个痛点。",
+            )
+        if change_items and self._should_generate_action(change_items[0]):
+            return self._brief(self._first_action(change_items[0]), "今天只做一个低成本验证动作")
+        return "今天只整理真实痛点，不急着追海外趋势或复杂项目"
+
+    def _best_action_item(self, pain_items: list[IntelligenceItem], radar_items: list[IntelligenceItem]) -> IntelligenceItem | None:
+        candidates = [item for item in pain_items if self._should_generate_action(item)]
+        if not candidates:
+            candidates = [item for item in radar_items if self._should_generate_action(item)]
+        if not candidates:
+            return None
+        def score(item: IntelligenceItem) -> tuple[int, float]:
+            text = self._raw_item_text(item).lower()
+            priority = 3 if any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库", "回复太慢"]) else 0
+            return (priority, item.final_score)
+        return sorted(candidates, key=score, reverse=True)[0]
+
+    def _action_theme(self, item: IntelligenceItem) -> str:
+        text = self._raw_item_text(item).lower()
+        if any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库", "回复太慢"]):
+            return "AI客服自动回复"
+        if "详情页" in text:
+            return "详情页诊断"
+        if any(word in text for word in ["ai工具", "ai 工具", "prompt", "自动化"]):
+            return "AI工作流模板"
+        return self._brief(self._pain_title(item), "低成本痛点验证", min_len=8, max_len=24)
 
     def _understanding(self, item: IntelligenceItem) -> str:
         title = self._title_zh(item)
@@ -667,8 +721,10 @@ class ReportBuilder:
         return self._title_zh(item)[:60]
 
     def _radar_status(self, item: IntelligenceItem) -> str:
-        if self._is_high_capital(item) or item.risk_score >= 8:
+        if self._is_high_capital(item) or self._is_non_ordinary_opportunity(item) or item.risk_score >= 8:
             return "不建议碰"
+        if not self._should_generate_action(item):
+            return "观察中"
         if self._radar_criteria_count(item) >= 4:
             return "可测试"
         return "观察中"
@@ -1219,6 +1275,33 @@ class ReportBuilder:
             text = text.split("。", 1)[0] + "。"
         return text[:140]
 
+    def _brief(self, value, fallback: str, min_len: int = 35, max_len: int = 60) -> str:
+        text = re.sub(r"\s+", " ", self._text(value, fallback)).strip()
+        if len(text) <= max_len:
+            return text
+        candidates: list[str] = []
+        for marker in ["。", "；", ";", "，", ",", "：", ":"]:
+            pos = text.rfind(marker, 0, max_len + 1)
+            if pos >= min_len:
+                candidates.append(text[: pos + 1])
+        if candidates:
+            return max(candidates, key=len).rstrip("，,：:；;")
+        words = text[:max_len].split()
+        if len(words) > 1:
+            return " ".join(words[:-1]).rstrip("，,：:；;")
+        return text[:max_len].rstrip("，,：:；;")
+
+    def _dedupe_lines(self, values: list[str]) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = re.sub(r"\s+", " ", value).strip()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(value)
+        return result
+
     def _text(self, value, fallback: str = FALLBACK) -> str:
         if isinstance(value, datetime):
             return value.strftime("%Y-%m-%d %H:%M")
@@ -1274,6 +1357,7 @@ class ReportBuilder:
         return any(marker in text for marker in generic_markers)
 
     def _sanitize(self, content: str) -> str:
+        content = re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
         replacements = {
             "轻松月入过万": "夸大收益承诺",
             "零基础暴富": "夸大入门门槛和收益",
@@ -1289,6 +1373,8 @@ class ReportBuilder:
         return content
 
     def _validate_report_structure(self, report: str) -> None:
+        if "每日破圈赚钱情报 (" in report:
+            raise ValueError("Report structure invalid: Feishu segment title leaked into report content")
         positions = []
         for heading in SECTION_HEADINGS:
             count = report.count(heading)

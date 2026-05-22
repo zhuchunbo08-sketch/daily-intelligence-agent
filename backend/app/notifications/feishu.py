@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import re
 import time
 
 import httpx
@@ -23,7 +24,8 @@ class FeishuNotifier:
         if not self.enabled:
             raise RuntimeError("FEISHU_WEBHOOK_URL is not configured")
 
-        chunks = self._split(content, self.settings.feishu_max_message_chars)
+        clean_content = self._strip_segment_titles(content)
+        chunks = self._split(clean_content, self.settings.feishu_max_message_chars)
         client_kwargs = {"timeout": 30}
         if self.settings.proxy_url:
             client_kwargs["proxy"] = self.settings.proxy_url
@@ -62,6 +64,7 @@ class FeishuNotifier:
         return base64.b64encode(digest).decode("utf-8")
 
     def _split(self, content: str, limit: int) -> list[str]:
+        content = self._strip_segment_titles(content)
         if len(content) <= limit:
             return [content]
         chunks: list[str] = []
@@ -82,3 +85,6 @@ class FeishuNotifier:
         if current:
             chunks.append("\n\n".join(current))
         return chunks
+
+    def _strip_segment_titles(self, content: str) -> str:
+        return re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
