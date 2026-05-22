@@ -1,0 +1,31 @@
+[
+  {
+    "name": "TechCrunch",
+    "type": "rss",
+    "url": "https://techcrunch.com/feed/",
+    "category_hint": "科技",
+    "enabled": true
+  },
+  {
+    "name": "36氪",
+    "type": "rss",
+    "url": "https://36kr.com/feed",
+    "category_hint": "商业",
+    "enabled": true
+  },
+  {
+    "name": "中国政府网-政策",
+    "type": "rss",
+    "url": "https://www.gov.cn/pushinfo/v150203/pushinfo.xml",
+    "category_hint": "政治政策",
+    "enabled": true
+  },
+  {
+    "name": "GDELT AI opportunity search",
+    "type": "gdelt",
+    "url": "https://api.gdeltproject.org/api/v2/doc/doc",
+    "query": "(AI OR artificial intelligence OR ecommerce OR SaaS OR automation OR startup)",
+    "category_hint": "科技",
+    "enabled": true
+  }
+]

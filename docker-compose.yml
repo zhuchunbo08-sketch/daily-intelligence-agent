@@ -1,0 +1,16 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: daily-opportunity-intel-backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite:///./data/daily_intelligence.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./backend/config:/app/config
+      - ./logs:/app/logs
+    restart: unless-stopped
