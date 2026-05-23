@@ -247,10 +247,15 @@ class DailyReportJob:
             db.commit()
 
     async def _send_failure_alert(self, db: Session, message: str, detail: str | None) -> None:
+        hint = self._failure_hint(message, detail)
+        detail_excerpt = (detail or "").strip()
+        detail_line = f"- 详细信息：{detail_excerpt[:500]}\n\n" if detail_excerpt else ""
         content = (
             "# 每日破圈赚钱情报运行失败\n\n"
             f"- 时间：{now_local():%Y-%m-%d %H:%M:%S}\n"
             f"- 错误：{message}\n\n"
+            f"{detail_line}"
+            f"- 排查线索：{hint}\n\n"
             "请检查服务日志和数据源配置。"
         )
         try:
@@ -273,3 +278,15 @@ class DailyReportJob:
                 )
         finally:
             db.commit()
+
+    def _failure_hint(self, message: str, detail: str | None) -> str:
+        text = f"{message}\n{detail or ''}"
+        if "Report structure invalid" in text:
+            if "missing" in text:
+                return "日报结构缺少必需模块，错误信息中通常包含具体标题和缺失字段。"
+            if "empty marker" in text:
+                return "日报中出现普通空值标记，请检查对应字段的 AI 输出或 fallback。"
+            if "Feishu segment title" in text:
+                return "飞书分段标题混入日报正文，请检查 report.content 和 Feishu 分段逻辑。"
+            return "日报结构校验失败，请优先查看错误中的标题、字段或模块名称。"
+        return "非结构校验错误，请检查采集、AI 分析、数据库和推送日志。"

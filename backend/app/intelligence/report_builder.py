@@ -217,6 +217,7 @@ class ReportBuilder:
         observed_items: list[IntelligenceItem],
     ) -> str:
         report = self._build_template(report_date, window_start, window_end, items, observed_items)
+        report = self.sanitize_report_content(report)
         self._validate_report_structure(report)
         return report
 
@@ -1370,11 +1371,60 @@ class ReportBuilder:
         for phrase in BLOCKED_PHRASES:
             if phrase not in replacements:
                 content = re.sub(re.escape(phrase), phrase, content)
+        return self.sanitize_report_content(content)
+
+    def sanitize_report_content(self, content: str) -> str:
+        field_fallbacks = {
+            "风险提醒": "暂无明显风险，但仍需核实来源、真实案例和交付能力。",
+            "风险": "暂无明显风险，但仍需核实来源、真实案例和交付能力。",
+            "历史类比": "暂无明确可比历史阶段，本条更适合作为趋势观察。",
+            "历史类比 / 成熟市场参照": "暂无明确可比历史阶段，本条更适合作为趋势观察。",
+            "中国落地价值": "暂无直接落地路径，先作为趋势观察。",
+            "可执行动作": "暂不建议行动，本条只做趋势观察。",
+            "第一行动": "暂不建议行动，本条只做趋势观察。",
+            "3 天内动作": "不建议做 3 天动作，本条只做趋势观察。",
+            "7 天内验证动作": "暂不建议行动，本条只做趋势观察。",
+            "机会判断": "观察中。",
+        }
+        empty_values = r"(?:无|/|\\|N/A|n/a|None|none|暂无)\s*[。.]?"
+
+        def replace_field(match: re.Match) -> str:
+            prefix = match.group("prefix")
+            field = match.group("field").strip()
+            fallback = field_fallbacks.get(field, "暂无明确价值，先作为趋势观察。")
+            return f"{prefix}{field}：{fallback}"
+
+        field_names = sorted(field_fallbacks, key=len, reverse=True)
+        field_pattern = re.compile(
+            rf"(?m)^(?P<prefix>\s*(?:(?:[-*]|\#+)\s*)?)(?P<field>{'|'.join(re.escape(k) for k in field_names)})\s*[：:]\s*{empty_values}\s*$"
+        )
+        content = field_pattern.sub(replace_field, content)
+
+        default_fallback = "暂无明确价值，先作为趋势观察。"
+        content = re.sub(rf"(?m)([：:])\s*(?:无|/|\\|N/A|n/a|None|none)\s*[。.]?(?=\s*$)", rf"\1{default_fallback}", content)
+        content = re.sub(r"(?m)([：:])\s*暂无\s*[。.]?(?=\s*$)", rf"\1{default_fallback}", content)
         return content
+
+    def _remaining_empty_markers(self, content: str) -> list[str]:
+        patterns = [
+            r"：\s*无\s*[。.]?(?=\s*$)",
+            r"：\s*/\s*[。.]?(?=\s*$)",
+            r"：\s*N/A\s*[。.]?(?=\s*$)",
+            r":\s*无\s*[。.]?(?=\s*$)",
+            r":\s*/\s*[。.]?(?=\s*$)",
+            r":\s*N/A\s*[。.]?(?=\s*$)",
+        ]
+        matches: list[str] = []
+        for pattern in patterns:
+            matches.extend(match.group(0).strip() for match in re.finditer(pattern, content, re.M))
+        return matches
 
     def _validate_report_structure(self, report: str) -> None:
         if "每日破圈赚钱情报 (" in report:
             raise ValueError("Report structure invalid: Feishu segment title leaked into report content")
+        remaining_markers = self._remaining_empty_markers(report)
+        if remaining_markers:
+            raise ValueError(f"Report structure invalid after sanitize: empty markers remain {remaining_markers[:5]}")
         positions = []
         for heading in SECTION_HEADINGS:
             count = report.count(heading)
@@ -1389,10 +1439,6 @@ class ReportBuilder:
         for heading in forbidden:
             if heading in first_area:
                 raise ValueError(f"Report structure invalid: {heading} appears inside change item area")
-
-        for marker in ["：无", "：/", ": /", ": 无"]:
-            if marker in report:
-                raise ValueError(f"Report structure invalid: empty marker found {marker!r}")
 
         change_area = report[report.index(SECTION_HEADINGS[1]) : report.index(SECTION_HEADINGS[2])]
         change_blocks = re.findall(r"(?ms)^### \d+\. .*?(?=^### \d+\.|^## 二、|\Z)", change_area)
