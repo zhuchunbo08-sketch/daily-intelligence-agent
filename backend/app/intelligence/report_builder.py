@@ -272,7 +272,7 @@ class ReportBuilder:
         lines.extend(self._render_pain_points(pain_items))
 
         lines.extend(["", "## 四、今日认知升级", ""])
-        lines.extend(self._render_cognition(cognition_items))
+        lines.extend(self._render_cognition(cognition_items, pain_items, radar_items, change_items))
 
         lines.extend(["", "## 五、今日反割韭菜提醒", ""])
         lines.extend(self._render_risks(risk_items, commercial_item))
@@ -351,18 +351,18 @@ class ReportBuilder:
                 [
                     f"### 痛点 {index}：{self._pain_title(item)}",
                     "",
-                    f"- 高频问题：{self._text(pain.get('question'), self._title_zh(item))}",
+                    f"- 高频问题：{self._pain_question(item)}",
                     f"- 来源平台：{self._pain_source(item)}",
                     f"- 目标人群：{self._audience(item)}",
-                    f"- 背后真实需求：{self._text(pain.get('real_need'), self._pain_need(item))}",
-                    f"- 为什么这是个需求：{self._text(pain.get('why_need'), '它反复出现在搜索、评论或社区讨论中，并且对应省时间、省钱、省心或提高收入。')}",
-                    f"- 现有解决方案有什么不足：{self._text(pain.get('current_gap'), '现有方案要么太泛，要么不够场景化，普通人不知道怎么直接落地。')}",
+                    f"- 背后真实需求：{self._pain_need_text(item)}",
+                    f"- 为什么这是个需求：{self._pain_why_need(item)}",
+                    f"- 现有解决方案有什么不足：{self._pain_current_gap(item)}",
                     "- 可以变成什么：",
-                    f"  - 商品：{self._text(pain.get('product'), self._pain_product(item))}",
-                    f"  - 服务：{self._text(pain.get('service'), self._pain_service(item))}",
-                    f"  - 内容：{self._text(pain.get('content'), self._pain_content(item))}",
-                    f"  - 工具：{self._text(pain.get('tool'), self._pain_tool(item))}",
-                    f"  - AI 自动化：{self._text(pain.get('ai_automation'), self._pain_ai(item))}",
+                    f"  - 商品：{self._pain_product_text(item)}",
+                    f"  - 服务：{self._pain_service_text(item)}",
+                    f"  - 内容：{self._pain_content_text(item)}",
+                    f"  - 工具：{self._pain_tool_text(item)}",
+                    f"  - AI 自动化：{self._pain_ai_text(item)}",
                     f"- 适合在哪个平台验证：{self._pain_platforms(item)}",
                     f"- 发达国家/成熟市场是否已有类似产品或服务：{self._pain_mature_market(item)}",
                     f"- 认知破界：{self._pain_breakthrough(item)}",
@@ -377,22 +377,30 @@ class ReportBuilder:
             )
         return lines
 
-    def _render_cognition(self, items: list[IntelligenceItem]) -> list[str]:
+    def _render_cognition(
+        self,
+        items: list[IntelligenceItem],
+        pain_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+        change_items: list[IntelligenceItem],
+    ) -> list[str]:
+        commercial_item = self._best_commercial_learning_item(pain_items, radar_items, change_items)
+        if commercial_item and self._is_ai_customer_service_opportunity(commercial_item):
+            return [
+                "- AI 带来的机会不一定是创作更多内容，而是帮具体行业过滤、整理和沉淀重复问题。",
+                "- 普通人做 AI 服务，不要卖“会用工具”，要卖“帮某个行业整理好的结果”。",
+            ]
         if not items:
             return ["- 真正值得看的不是热点本身，而是它能否变成可验证的国内场景、明确人群和低成本动作。"]
         lines: list[str] = []
         seen: set[str] = set()
         for item in items:
-            cognition = self._cognition(item)
-            line = self._sentence(
-                cognition.get("new"),
-                "先判断是否能迁移到国内场景，再判断普通人能否低成本验证。",
-            )
+            line = self._cognition_judgment(item)
             if line in seen:
                 continue
             seen.add(line)
             lines.append(f"- {line}")
-            if len(lines) >= 3:
+            if len(lines) >= 2:
                 break
         return lines
 
@@ -1011,6 +1019,12 @@ class ReportBuilder:
         value = pain.get("question") or pain.get("title") or item.summary or item.title
         return self._sentence(value, item.title)[:60]
 
+    def _pain_question(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "小商家客户老问重复问题怎么办"
+        pain = self._pain(item)
+        return self._text(pain.get("question"), self._title_zh(item))
+
     def _pain_source(self, item: IntelligenceItem) -> str:
         if self._is_ai_customer_service_opportunity(item):
             return "可配置痛点关键词池 / 小商家 AI 服务观察"
@@ -1027,6 +1041,16 @@ class ReportBuilder:
     def _cognition(self, item: IntelligenceItem) -> dict:
         value = item.analysis.get("cognition")
         return value if isinstance(value, dict) else {}
+
+    def _cognition_judgment(self, item: IntelligenceItem) -> str:
+        text = self._item_text(item).lower()
+        if any(word in text for word in ["spotify", "内容过载", "ai工具", "ai 工具", "创作", "ugc"]):
+            return "AI 带来的机会不一定在创作更多内容，而可能在帮人过滤、整理和减少信息负担。"
+        if any(word in text for word in ["客服", "自动回复", "知识库", "小商家"]):
+            return "普通人做 AI 服务，不要卖“会用工具”，要卖“帮某个行业整理好的结果”。"
+        if any(word in text for word in ["社区", "forum", "reddit", "讨论"]):
+            return "平台越鼓励泛内容，越会反向产生对高质量讨论、可信答案和信息整理的需求。"
+        return "真正值得看的不是热点本身，而是它能否变成明确人群、明确交付和低成本验证。"
 
     def _risk(self, item: IntelligenceItem) -> dict:
         value = item.analysis.get("risk")
@@ -1221,22 +1245,80 @@ class ReportBuilder:
         return f"第 1 天：在{platforms}搜索“{keyword}”相关真实商品、服务或内容，记录 20 条价格、评论痛点和交付形式。\n\n第 2 天：整理一个 1 页小样或服务说明，只保留目标人群、痛点和交付结果。\n\n第 3 天：找 3 个目标用户验证是否愿意付费。"
 
     def _pain_need(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "小商家想把客户重复问题、客服话术和新人培训资料沉淀下来，降低回复成本。"
         return f"目标人群想更省时间、更省心或更低成本地解决“{self._keyword(item)}”相关问题。"
 
+    def _pain_need_text(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return self._pain_need(item)
+        return self._text(self._pain(item).get("real_need"), self._pain_need(item))
+
+    def _pain_why_need(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "客户反复问尺码、发货、售后、优惠和使用方法，客服回复慢会影响转化，新人也需要可复制的话术。"
+        return self._text(
+            self._pain(item).get("why_need"),
+            "它反复出现在搜索、评论或社区讨论中，并且对应省时间、省钱、省心或提高收入。",
+        )
+
+    def _pain_current_gap(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "很多商家只有零散聊天记录，没有结构化 FAQ、标准话术和自动回复规则，买通用模板又不贴合行业。"
+        return self._text(
+            self._pain(item).get("current_gap"),
+            "现有方案要么太泛，要么不够场景化，普通人不知道怎么直接落地。",
+        )
+
     def _pain_product(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "客服 FAQ 模板包、行业话术库、售前售后问题清单。"
         return f"围绕“{self._keyword(item)}”做低价小商品、资料包或模板。"
 
+    def _pain_product_text(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return self._pain_product(item)
+        return self._text(self._pain(item).get("product"), self._pain_product(item))
+
     def _pain_service(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "为一个细分类目整理 30-80 条高频问答，并代配置自动回复或飞书知识库。"
         return f"提供诊断、整理、代设置、陪跑或一对一解决服务。"
 
+    def _pain_service_text(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return self._pain_service(item)
+        return self._text(self._pain(item).get("service"), self._pain_service(item))
+
     def _pain_content(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "做小红书/抖音内容：客服回复慢、售后话术、自动回复配置、店铺 FAQ 示例。"
         return f"做小红书/抖音系列内容：真实问题、对比方案、避坑清单。"
 
+    def _pain_content_text(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return self._pain_content(item)
+        return self._text(self._pain(item).get("content"), self._pain_content(item))
+
     def _pain_tool(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "飞书表格 FAQ、自动回复规则表、客服新人培训清单。"
         return f"做表格、清单、模板、计算器或流程化工具。"
 
+    def _pain_tool_text(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return self._pain_tool(item)
+        return self._text(self._pain(item).get("tool"), self._pain_tool(item))
+
     def _pain_ai(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "用 AI 从历史聊天记录中提取高频问题，生成标准回复，再由人工校对后配置自动回复。"
         return f"用 AI 做问答助手、自动回复、文案生成、资料整理或流程自动化。"
+
+    def _pain_ai_text(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return self._pain_ai(item)
+        return self._text(self._pain(item).get("ai_automation"), self._pain_ai(item))
 
     def _pain_platforms(self, item: IntelligenceItem) -> str:
         return self._platforms(item) or "暂不建议绑定具体平台，先观察需求是否真实。"

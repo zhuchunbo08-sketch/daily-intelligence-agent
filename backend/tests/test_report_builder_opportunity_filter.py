@@ -140,3 +140,48 @@ def test_radar_backed_ai_service_is_synced_into_pain_module():
     assert pain_items == [ai_service]
     assert "小商家客户老问重复问题怎么办" in rendered
     assert "可配置痛点关键词池 / 小商家 AI 服务观察" in rendered
+
+
+def test_ai_customer_service_pain_question_stays_consistent_and_specific():
+    builder = ReportBuilder()
+    ai_service = _item(
+        "小企业主不懂AI，如何低成本快速学会并应用到业务？",
+        "为小商家整理客服话术库、常见问题知识库和 AI 自动回复配置，交付飞书表格小样。",
+        {
+            "pain_point": {"question": "小企业主不懂AI，如何低成本快速学会并应用到业务？"},
+            "opportunity": {
+                "name": "小企业AI培训参与或衍生服务",
+                "status": "是",
+                "suitable_for": "淘宝/拼多多/抖音小商家和小老板",
+            },
+        },
+    )
+
+    rendered = "\n".join(builder._render_pain_points([ai_service]))
+
+    assert "### 痛点 1：小商家客户老问重复问题怎么办" in rendered
+    assert "- 高频问题：小商家客户老问重复问题怎么办" in rendered
+    assert "小企业主不懂AI" not in rendered
+
+
+def test_cognition_upgrade_uses_judgment_not_news_summary_for_ai_service():
+    builder = ReportBuilder()
+    ai_service = _item(
+        "小企业AI培训参与或衍生服务",
+        "为小商家整理客服话术库、常见问题知识库和 AI 自动回复配置，交付飞书表格小样。",
+        {
+            "opportunity": {
+                "name": "小企业AI培训参与或衍生服务",
+                "status": "是",
+                "suitable_for": "淘宝/拼多多/抖音小商家和小老板",
+            }
+        },
+    )
+
+    lines = builder._render_cognition([], [ai_service], [ai_service], [])
+    text = "\n".join(lines)
+
+    assert len(lines) == 2
+    assert "不要卖“会用工具”" in text
+    assert "Spotify推出" not in text
+    assert "TechCrunch报道" not in text
