@@ -16,6 +16,9 @@ SECTION_HEADINGS = [
     "## 四、今日认知升级",
     "## 五、今日反割韭菜提醒",
     "## 六、今日行动建议",
+    "## 七、今日商业模式拆解",
+    "## 八、今日一个反常识判断",
+    "## 九、今日认知边界扩展",
 ]
 
 LOW_VALUE_NEWS_KEYWORDS = [
@@ -231,9 +234,9 @@ class ReportBuilder:
     ) -> str:
         self.last_filtered_news = []
         self.last_filtered_pain_points = []
-        change_items = self._change_items(observed_items)
-        radar_items = self._radar_items(observed_items)
         pain_items = self._pain_items(observed_items)
+        change_items = self._change_items(observed_items)
+        radar_items = self._radar_items(observed_items, pain_items)
         cognition_items = self._cognition_items(change_items + radar_items + pain_items)
         risk_items = self._risk_items(observed_items)
 
@@ -275,6 +278,15 @@ class ReportBuilder:
         lines.extend(["", "## 六、今日行动建议", ""])
         lines.extend(self._render_actions(pain_items, radar_items, change_items))
 
+        lines.extend(["", "## 七、今日商业模式拆解", ""])
+        lines.extend(self._render_business_model(pain_items, radar_items, change_items))
+
+        lines.extend(["", "## 八、今日一个反常识判断", ""])
+        lines.extend(self._render_counterintuitive_judgment(pain_items, radar_items, change_items))
+
+        lines.extend(["", "## 九、今日认知边界扩展", ""])
+        lines.extend(self._render_boundary_expansion(pain_items, radar_items, change_items))
+
         return self._sanitize("\n".join(lines).strip() + "\n")
 
     def _render_change_item(self, index: int, item: IntelligenceItem) -> list[str]:
@@ -309,7 +321,7 @@ class ReportBuilder:
 
     def _render_radar(self, items: list[IntelligenceItem]) -> list[str]:
         if not items:
-            return ["今天没有符合“普通人或小团队 7 天内可验证、低/中成本、风险不高”的新闻机会。"]
+            return ["今天没有筛出足够具体、低成本、7 天内可验证的机会，宁可不推，不凑数。"]
         lines: list[str] = []
         for item in items[:3]:
             lines.extend(
@@ -416,6 +428,70 @@ class ReportBuilder:
             actions.append("1. 今天用 30 分钟整理 3 个真实痛点问题，只记录人群、场景、现有方案和是否有人付费，不急着行动。")
         return self._dedupe_lines(actions)[:2]
 
+    def _render_business_model(
+        self,
+        pain_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+        change_items: list[IntelligenceItem],
+    ) -> list[str]:
+        item = self._best_commercial_learning_item(pain_items, radar_items, change_items)
+        if not item:
+            return ["今天没有足够具体、贴近真实交易的商业模式可拆，宁可空过，不硬写。"]
+        model = self._business_model_profile(item)
+        return [
+            f"- 模式名称：{model['name']}",
+            f"- 谁在付钱：{model['payer']}",
+            f"- 为什么愿意付钱：{model['reason']}",
+            f"- 核心交付是什么：{model['delivery']}",
+            f"- 真正赚钱的环节在哪里：{model['profit_point']}",
+            f"- 最大成本是什么：{model['cost']}",
+            f"- 为什么这个模式能长期存在：{model['durability']}",
+            f"- 普通人能不能切进去：{model['entry_possible']}",
+            f"- 最低成本切入口：{model['entry']}",
+            f"- 最大坑：{model['trap']}",
+            f"- 我今天应该记住的一句话：{model['one_sentence']}",
+        ]
+
+    def _render_counterintuitive_judgment(
+        self,
+        pain_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+        change_items: list[IntelligenceItem],
+    ) -> list[str]:
+        item = self._best_commercial_learning_item(pain_items, radar_items, change_items)
+        if not item:
+            return ["今天没有足够扎实的反常识判断，先不硬凑。"]
+        judgment = self._counterintuitive_profile(item)
+        return [
+            f"- 大多数人的直觉：{judgment['intuition']}",
+            f"- 更高层的真实规律：{judgment['law']}",
+            f"- 为什么很多人会看错：{judgment['why_wrong']}",
+            f"- 现实案例：{judgment['case']}",
+            f"- 对普通人的意义：{judgment['meaning']}",
+            f"- 我今天应该更新的判断：{judgment['update']}",
+        ]
+
+    def _render_boundary_expansion(
+        self,
+        pain_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+        change_items: list[IntelligenceItem],
+    ) -> list[str]:
+        item = self._best_commercial_learning_item(pain_items, radar_items, change_items)
+        if not item:
+            return ["今天没有足够高质量的认知边界扩展材料，先不输出。"]
+        boundary = self._boundary_profile(item)
+        return [
+            f"- 今日破界主题：{boundary['topic']}",
+            f"- 原来的常见认知：{boundary['old']}",
+            f"- 更高一层的认知：{boundary['new']}",
+            f"- 现实案例：{boundary['case']}",
+            f"- 中国是否正在出现类似变化：{boundary['china']}",
+            f"- 对普通人的机会：{boundary['opportunity']}",
+            f"- 最容易踩的坑：{boundary['trap']}",
+            f"- 我今天应该记住的一句话：{boundary['one_sentence']}",
+        ]
+
     def _change_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
         candidates: list[IntelligenceItem] = []
         for item in sorted(items, key=lambda x: x.final_score, reverse=True):
@@ -426,8 +502,10 @@ class ReportBuilder:
             candidates.append(item)
         return candidates[:3]
 
-    def _radar_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
+    def _radar_items(self, items: list[IntelligenceItem], pain_items: list[IntelligenceItem] | None = None) -> list[IntelligenceItem]:
         selected: list[IntelligenceItem] = []
+        seen_opportunities: set[str] = set()
+        has_quality_pain = bool(pain_items)
         for item in sorted(items, key=lambda x: (self._radar_priority(x), x.final_score), reverse=True):
             if self._is_pain_item(item):
                 if self._pain_filter_reason(item):
@@ -438,8 +516,18 @@ class ReportBuilder:
                 continue
             if not self._should_generate_action(item):
                 continue
-            if self._radar_criteria_count(item) < 5:
+            if self._is_vague_trend_opportunity(item):
                 continue
+            if not self._is_pain_item(item) and not self._has_concrete_radar_offer(item):
+                continue
+            if not has_quality_pain and not self._is_pain_item(item) and not self._is_strong_concrete_service(item):
+                continue
+            if self._radar_criteria_count(item) < 6:
+                continue
+            key = self._radar_dedupe_key(item)
+            if key in seen_opportunities:
+                continue
+            seen_opportunities.add(key)
             selected.append(item)
         return selected[:3]
 
@@ -453,6 +541,9 @@ class ReportBuilder:
         if any(word in self._item_text(item).lower() for word in ["内容", "资料包", "模板", "课程"]):
             return 2
         return 1
+
+    def _radar_dedupe_key(self, item: IntelligenceItem) -> str:
+        return re.sub(r"\s+", "", self._opportunity_name(item).lower())
 
     def _pain_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
         selected: list[IntelligenceItem] = []
@@ -607,6 +698,56 @@ class ReportBuilder:
             return (priority, item.final_score)
         return sorted(candidates, key=score, reverse=True)[0]
 
+    def _best_commercial_learning_item(
+        self,
+        pain_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+        change_items: list[IntelligenceItem],
+    ) -> IntelligenceItem | None:
+        candidates = [item for item in pain_items + radar_items if self._is_commercial_learning_source(item)]
+        if not candidates:
+            candidates = [item for item in change_items if self._is_commercial_learning_source(item)]
+        if not candidates:
+            return None
+
+        def score(item: IntelligenceItem) -> tuple[int, float]:
+            text = self._item_text(item).lower()
+            priority = 0
+            if self._is_ai_customer_service_opportunity(item):
+                priority += 6
+            if self._is_pain_item(item):
+                priority += 4
+            if self._has_concrete_radar_offer(item):
+                priority += 3
+            if any(word in text for word in ["客服", "详情页", "自动回复", "知识库", "商家", "店铺"]):
+                priority += 2
+            return (priority, item.final_score)
+
+        return sorted(candidates, key=score, reverse=True)[0]
+
+    def _is_commercial_learning_source(self, item: IntelligenceItem) -> bool:
+        if self._is_high_capital(item) or self._is_non_ordinary_opportunity(item):
+            return False
+        if self._has_complex_rights_risk(item) and not self._has_concrete_radar_offer(item):
+            return False
+        text = self._item_text(item).lower()
+        return self._is_pain_item(item) or self._has_concrete_radar_offer(item) or any(
+            word in text
+            for word in [
+                "商业模式",
+                "变现",
+                "付费",
+                "订阅",
+                "服务",
+                "模板",
+                "工具",
+                "电商",
+                "小商家",
+                "创作者",
+                "小商品",
+            ]
+        )
+
     def _action_theme(self, item: IntelligenceItem) -> str:
         text = self._raw_item_text(item).lower()
         if any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库", "回复太慢"]):
@@ -616,6 +757,177 @@ class ReportBuilder:
         if any(word in text for word in ["ai工具", "ai 工具", "prompt", "自动化"]):
             return "AI工作流模板"
         return self._brief(self._pain_title(item), "低成本痛点验证", min_len=8, max_len=24)
+
+    def _business_model_profile(self, item: IntelligenceItem) -> dict[str, str]:
+        text = self._item_text(item).lower()
+        if self._is_ai_customer_service_opportunity(item) or any(word in text for word in ["客服", "自动回复", "知识库", "客户老问"]):
+            return {
+                "name": "AI客服话术库和自动回复配置服务",
+                "payer": "淘宝、拼多多、抖音小店商家和本地小老板。",
+                "reason": "客服重复回答耗时间，新人培训慢，错答还会影响转化和售后。",
+                "delivery": "行业高频问答库、标准话术、自动回复规则和一份可维护的飞书表格。",
+                "profit_point": "不是卖 AI 概念，而是卖已经整理好的行业知识和配置结果。",
+                "cost": "前期跑真实店铺场景、整理问答、持续补充新问题。",
+                "durability": "每个行业都有自己的客户问法，商家也一直有降本和提转化需求。",
+                "entry_possible": "可以，但要先从一个垂直行业切进去。",
+                "entry": "先做母婴店、女装店或本地家政店的 30 条客服问答模板。",
+                "trap": "只卖通用模板，不懂真实业务，商家很快会觉得没用。",
+                "one_sentence": "很多人买的不是工具，而是已经帮他整理好的结果。",
+            }
+        if any(word in text for word in ["详情页", "主图", "店铺", "转化率"]):
+            return {
+                "name": "电商详情页诊断和改版清单服务",
+                "payer": "有流量但转化差的淘宝、拼多多和抖音小店商家。",
+                "reason": "他们不一定懂设计和文案，但能感受到点击、咨询和成交变少。",
+                "delivery": "一页问题诊断、竞品对照、主图/详情页改版建议和可直接外包的修改清单。",
+                "profit_point": "赚钱点在把模糊的“页面不好”翻译成商家能执行的改法。",
+                "cost": "看店铺、看竞品、积累类目经验和真实转化案例。",
+                "durability": "平台规则和用户审美会变，但商家提高转化的需求长期存在。",
+                "entry_possible": "可以，从一个小类目开始更现实。",
+                "entry": "选一个母婴、服饰或家居小类目，做 3 个免费诊断样本换反馈。",
+                "trap": "只做漂亮设计，不看商品卖点、评价痛点和真实成交路径。",
+                "one_sentence": "小商家愿意为能直接提高转化的具体改法付钱。",
+            }
+        if any(word in text for word in ["孩子", "育儿", "家长", "任务卡", "奖励表"]):
+            return {
+                "name": "低价育儿工具包",
+                "payer": "被作业、习惯和亲子沟通反复困扰的家长。",
+                "reason": "家长不缺大道理，缺的是今晚就能拿来用的表格、卡片和流程。",
+                "delivery": "行为奖励表、作息打卡表、亲子任务卡和使用说明。",
+                "profit_point": "赚钱点在把育儿建议做成低压力、可打印、可执行的小工具。",
+                "cost": "理解真实家庭场景，避免夸大效果和制造焦虑。",
+                "durability": "家庭管理问题会反复出现，低价工具比大课更容易试错。",
+                "entry_possible": "可以，但要克制承诺。",
+                "entry": "先做一页孩子作息打卡表，在小红书找 3 位家长试用。",
+                "trap": "把工具包装成万能教育方法，反而变成焦虑生意。",
+                "one_sentence": "育儿小生意的低门槛切口，是把建议变成能立刻用的工具。",
+            }
+        if any(word in text for word in ["收纳", "衣架", "宠物", "清洁", "厨房", "小商品"]):
+            return {
+                "name": "场景细分小商品",
+                "payer": "被尺寸、收纳、清洁或宠物问题反复困扰的家庭用户。",
+                "reason": "小问题出现频率高，用户愿意为省心和更贴合场景的小物付钱。",
+                "delivery": "一个按人群、尺寸或场景重新定义的小商品，加上清楚的使用场景内容。",
+                "profit_point": "赚钱点在选品、差异化卖点和内容场景，而不只是低价进货。",
+                "cost": "找货源、测质量、看差评、拍内容和处理售后。",
+                "durability": "家庭空间和生活方式越细分，小商品需求越容易持续出现。",
+                "entry_possible": "可以，从差评集中且货源成熟的品类切入。",
+                "entry": "先在淘宝、拼多多、1688 找 20 条差评，倒推出 3 个差异化卖点。",
+                "trap": "只看销量不看差评，最后卖成无差异低价货。",
+                "one_sentence": "小商品机会常常不是发明新品，而是把老品类按场景切细。",
+            }
+        if any(word in text for word in ["内容", "小红书", "抖音", "选题", "剪辑", "创作者"]):
+            return {
+                "name": "内容创作者选题和复盘服务",
+                "payer": "有产品或账号但不会稳定产出内容的小商家和创作者。",
+                "reason": "他们缺的不是平台口号，而是持续选题、标题、脚本和复盘流程。",
+                "delivery": "选题库、标题模板、内容日历、复盘表和一轮账号诊断。",
+                "profit_point": "赚钱点在把平台经验变成可重复执行的内容流程。",
+                "cost": "持续研究账号案例、平台规则和转化结果。",
+                "durability": "只要平台靠内容分发，商家和创作者就会需要更稳定的产出方法。",
+                "entry_possible": "可以，但最好选一个细分行业。",
+                "entry": "先做一个本地生活或电商账号的 10 条选题样本。",
+                "trap": "只卖爆款标题，不看用户需求和成交路径。",
+                "one_sentence": "内容服务不是卖灵感，而是卖可持续生产和复盘的流程。",
+            }
+        return {
+            "name": "低成本问题诊断服务",
+            "payer": f"{self._audience(item)}。",
+            "reason": "他们已经感到麻烦，但不知道问题该怎么拆、先做哪一步。",
+            "delivery": "问题诊断、可执行清单、模板小样和一次验证建议。",
+            "profit_point": "赚钱点在把模糊问题拆成用户能马上执行的下一步。",
+            "cost": "理解真实场景，积累案例，避免泛泛而谈。",
+            "durability": "只要信息过载和执行门槛存在，用户就会为明确答案付费。",
+            "entry_possible": "可以，但必须从具体人群和具体场景开始。",
+            "entry": "先选一个明确问题，做 1 页诊断样本给 3 个真实用户看。",
+            "trap": "把诊断写成空话，没有交付物，也没有验证结果。",
+            "one_sentence": "普通人能切的小生意，往往是把复杂问题变成清楚下一步。",
+        }
+
+    def _counterintuitive_profile(self, item: IntelligenceItem) -> dict[str, str]:
+        text = self._item_text(item).lower()
+        if self._is_ai_customer_service_opportunity(item) or any(word in text for word in ["客服", "自动回复", "知识库"]):
+            return {
+                "intuition": "很多人以为 AI 服务的核心是会用最新工具。",
+                "law": "客户真正付钱的，常常是行业知识被整理成可直接使用的结果。",
+                "why_wrong": "工具看起来更高级，但小商家最缺的是能马上减少重复沟通的交付物。",
+                "case": "AI 客服话术库、常见问题知识库、自动回复配置，比单纯教工具更容易成交。",
+                "meaning": "普通人不必追模型本身，可以从一个行业的重复问题切入。",
+                "update": "能赚钱的不是会说 AI，而是能把 AI 变成具体行业的省时结果。",
+            }
+        if any(word in text for word in ["收纳", "衣架", "宠物", "清洁", "厨房", "小商品"]):
+            return {
+                "intuition": "很多人觉得小商品太普通，没什么商业认知可讲。",
+                "law": "越具体、越高频、越能被差评描述的小问题，反而越容易验证。",
+                "why_wrong": "大趋势更容易让人兴奋，小需求看起来不高级。",
+                "case": "儿童衣架、宠物除毛、厨房收纳、小户型清洁工具，都靠具体场景长期卖货。",
+                "meaning": "普通人可以先从差评和搜索词找需求，而不是先想宏大项目。",
+                "update": "痛点越具体，越容易验证；概念越宏大，越容易空转。",
+            }
+        if any(word in text for word in ["孩子", "育儿", "家长"]):
+            return {
+                "intuition": "很多人以为育儿变现就是卖课和专家建议。",
+                "law": "更低门槛的付费，往往来自简单、低价、今晚就能用的家庭工具。",
+                "why_wrong": "课程显得更完整，但家长在高压场景里先要一个能马上执行的办法。",
+                "case": "奖励表、作息卡、亲子任务卡和可打印资料包，比长课更容易低价测试。",
+                "meaning": "做育儿机会时，先解决一个家庭小摩擦，不要制造焦虑。",
+                "update": "用户不一定缺知识，很多时候缺一个能立刻落地的工具。",
+            }
+        return {
+            "intuition": "大多数人会先问这是不是风口。",
+            "law": "普通人更应该问：谁正在为这个具体麻烦付钱，交付物是什么。",
+            "why_wrong": "风口给人确定感，但真实交易发生在具体人群和具体结果之间。",
+            "case": self._opportunity_name(item),
+            "meaning": "先把趋势翻译成一个小样、一个模板或一次服务，再判断值不值得做。",
+            "update": "不要追最大概念，先找最小可付费场景。",
+        }
+
+    def _boundary_profile(self, item: IntelligenceItem) -> dict[str, str]:
+        text = self._item_text(item).lower()
+        if self._is_ai_customer_service_opportunity(item) or any(word in text for word in ["客服", "自动回复", "知识库", "自动化"]):
+            return {
+                "topic": "AI 从工具使用进入行业工作流交付。",
+                "old": "以前以为会用 AI 工具就能形成优势。",
+                "new": "更高一层是把 AI 嵌进某个行业的固定流程，让客户买到结果而不是教程。",
+                "case": "小商家客服问答库、自动回复规则、飞书表格知识库，就是比泛 AI 培训更具体的交付。",
+                "china": "正在出现，尤其是电商、本地生活和小团队办公场景。",
+                "opportunity": "先做垂直行业模板和代配置服务，再根据重复交付沉淀产品。",
+                "trap": "把 AI 包装成万能课，忽略客户真实业务和维护成本。",
+                "one_sentence": "AI 的普通人机会，不在模型，而在把模型接进具体工作流。",
+            }
+        if any(word in text for word in ["收纳", "衣架", "宠物", "清洁", "厨房", "小商品"]):
+            return {
+                "topic": "小痛点经济和场景细分商品。",
+                "old": "以前以为只有大品类、大品牌才值得做。",
+                "new": "成熟市场里很多生意来自把一个大品类按人群、尺寸、空间和场景切得更细。",
+                "case": "日本收纳经济、儿童尺寸家居小物、宠物清洁用品，都是具体场景推动的长期需求。",
+                "china": "正在出现，小户型、宠物、育儿和懒人家务场景都在细分。",
+                "opportunity": "从搜索词、差评和使用场景里找微创新，而不是凭空发明需求。",
+                "trap": "只做低价搬运，不做质量、场景和内容表达。",
+                "one_sentence": "商业地图里，小需求不是小价值，关键看频次和付费意愿。",
+            }
+        if any(word in text for word in ["孩子", "育儿", "家长"]):
+            return {
+                "topic": "家庭工具化需求。",
+                "old": "以前以为教育和育儿只能靠课程、专家和长期陪跑。",
+                "new": "很多家庭问题首先需要低压力、短链路、可执行的日常工具。",
+                "case": "欧美和日本常见 reward chart、routine cards、printable parenting tools。",
+                "china": "正在出现，家长从焦虑买课转向寻找更具体的家庭管理方法。",
+                "opportunity": "做可打印工具、亲子任务卡、习惯表和低价资料包。",
+                "trap": "夸大效果，暗示工具能解决所有教育问题。",
+                "one_sentence": "好的育儿小生意，是降低家庭摩擦，不是放大家长焦虑。",
+            }
+        return {
+            "topic": "从热点判断转向交易判断。",
+            "old": "以前容易把热度当成机会。",
+            "new": "真正的商业判断要看谁付钱、为什么付、交付什么、能否重复。",
+            "case": self._opportunity_name(item),
+            "china": "中国很多平台变化和消费需求，都需要先落到具体场景才能判断。",
+            "opportunity": "把今天看到的趋势拆成一个人群、一个痛点、一个交付物。",
+            "trap": "只记新闻标题，不验证真实需求。",
+            "one_sentence": "商业认知不是知道更多新闻，而是更快看清交易结构。",
+        }
+
 
     def _understanding(self, item: IntelligenceItem) -> str:
         title = self._title_zh(item)
@@ -716,6 +1028,8 @@ class ReportBuilder:
         return " / ".join(dict.fromkeys(platforms))
 
     def _opportunity_name(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "为小商家做 AI 客服话术库和自动回复配置服务"
         raw = self._opportunity(item).get("name")
         if self._valid(raw) and re.search(r"[\u4e00-\u9fff]", str(raw)):
             return self._sentence(raw, self._title_zh(item))[:60]
@@ -795,7 +1109,7 @@ class ReportBuilder:
         status = str(self._opportunity(item).get("status") or "")
         if "否" in status or "不建议" in status:
             return False
-        return self._has_ordinary_relevance(item) and self._has_clear_service_object(item)
+        return self._has_ordinary_relevance(item) and self._has_clear_service_object(item) and self._has_concrete_radar_offer(item)
 
     def _specific_first_action(self, item: IntelligenceItem) -> str:
         action = self._specific_three_day_action(item)
@@ -807,7 +1121,7 @@ class ReportBuilder:
         if not self._should_generate_action(item):
             return NO_THREE_DAY_ACTION
         text = (self._pain_signal_text(item) if self._is_pain_item(item) else self._item_text(item)).lower()
-        if any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库"]):
+        if self._is_ai_customer_service_opportunity(item) or any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库"]):
             return (
                 "第 1 天：在淘宝、小红书、抖音搜索“AI客服自动回复 / 客服话术模板 / 店铺自动回复 / 常见问题知识库”，记录 20 个商品或服务的价格、差评和卖点。\n\n"
                 "第 2 天：选一个细分场景，比如淘宝女装客服、母婴店客服或本地家政客服，整理 30 条常见问答，做成一个飞书表格或文档小样。\n\n"
@@ -1148,7 +1462,25 @@ class ReportBuilder:
         generic = ["所有人", "普通人", "有相关行业经验", "能低成本验证", "机会寻找者"]
         if self._valid(value) and not any(word in str(value) for word in generic):
             return True
-        return self._has_ordinary_relevance(item)
+        text = self._item_text(item).lower()
+        return any(
+            word in text
+            for word in [
+                "商家",
+                "卖家",
+                "小老板",
+                "门店",
+                "企业",
+                "客户",
+                "客服",
+                "家长",
+                "宝妈",
+                "宠物主",
+                "创作者",
+                "店铺",
+                "职场人",
+            ]
+        )
 
     def _has_executable_first_step(self, item: IntelligenceItem) -> bool:
         raw = self._opportunity(item).get("first_action") or self._pain(item).get("seven_day_action")
@@ -1189,6 +1521,88 @@ class ReportBuilder:
                 "服务",
             ]
         )
+
+    def _has_concrete_radar_offer(self, item: IntelligenceItem) -> bool:
+        text = self._item_text(item).lower()
+        if self._is_ai_customer_service_opportunity(item):
+            return True
+        concrete_terms = [
+            "话术库",
+            "自动回复配置",
+            "自动回复",
+            "知识库",
+            "飞书表格",
+            "多维表格",
+            "notion",
+            "模板",
+            "清单",
+            "资料包",
+            "诊断",
+            "代配置",
+            "代搭建",
+            "选品表",
+            "详情页诊断",
+            "主图优化",
+            "评论分析",
+            "客服",
+        ]
+        vague_only_terms = ["策展", "过滤工具", "社区运营", "forum", "论坛", "创作者/社区"]
+        if any(term in text for term in vague_only_terms) and not any(term in text for term in concrete_terms):
+            return False
+        return any(term in text for term in concrete_terms)
+
+    def _is_strong_concrete_service(self, item: IntelligenceItem) -> bool:
+        return (
+            self._has_concrete_radar_offer(item)
+            and self._has_clear_service_object(item)
+            and self._startup_cost(item) in {"低", "中"}
+            and self._risk_level(item) != "高"
+            and self._platforms(item) != ""
+        )
+
+    def _is_vague_trend_opportunity(self, item: IntelligenceItem) -> bool:
+        text = self._item_text(item).lower()
+        if self._is_ai_customer_service_opportunity(item):
+            return False
+        vague_patterns = [
+            "音频内容策展",
+            "内容策展与过滤",
+            "过滤工具",
+            "forum内容创作者",
+            "forum 内容创作者",
+            "社区运营",
+            "海外新应用",
+            "新应用趋势",
+            "平台趋势",
+        ]
+        if any(pattern in text for pattern in vague_patterns):
+            return True
+        if "forum" in text and not self._has_concrete_radar_offer(item):
+            return True
+        if any(word in text for word in ["spotify", "hark", "环球音乐", "版权", "分成", "翻唱", "混音"]):
+            return True
+        return False
+
+    def _is_ai_customer_service_opportunity(self, item: IntelligenceItem) -> bool:
+        text = self._item_text(item).lower()
+        has_ai = any(word in text for word in ["ai", "人工智能", "自动化", "自动回复", "知识库", "training", "培训"])
+        has_customer_service = any(
+            word in text
+            for word in [
+                "客服",
+                "客户老问",
+                "重复问题",
+                "话术",
+                "小商家",
+                "商家",
+                "卖家",
+                "店铺",
+                "small business",
+                "小企业",
+                "小老板",
+            ]
+        )
+        return has_ai and has_customer_service
 
     def _has_complex_rights_risk(self, item: IntelligenceItem) -> bool:
         text = self._raw_item_text(item).lower()
@@ -1374,6 +1788,8 @@ class ReportBuilder:
         return self.sanitize_report_content(content)
 
     def sanitize_report_content(self, content: str) -> str:
+        content = re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
+        content = re.sub(r"每日破圈赚钱情报\s+\(\d+/\d+\)", "", content)
         field_fallbacks = {
             "风险提醒": "暂无明显风险，但仍需核实来源、真实案例和交付能力。",
             "风险": "暂无明显风险，但仍需核实来源、真实案例和交付能力。",

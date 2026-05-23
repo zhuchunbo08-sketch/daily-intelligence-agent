@@ -11,6 +11,8 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+SEGMENT_TITLE_PREFIX = "每日破圈赚钱情报 ("
+
 
 class FeishuNotifier:
     def __init__(self) -> None:
@@ -31,8 +33,7 @@ class FeishuNotifier:
             client_kwargs["proxy"] = self.settings.proxy_url
         async with httpx.AsyncClient(**client_kwargs) as client:
             for index, chunk in enumerate(chunks, start=1):
-                title = "每日破圈赚钱情报" if len(chunks) == 1 else f"每日破圈赚钱情报 ({index}/{len(chunks)})"
-                payload = self._payload(title, chunk)
+                payload = self._payload("每日破圈赚钱情报", chunk)
                 response = await client.post(self.settings.feishu_webhook_url, json=payload)
                 response.raise_for_status()
                 data = response.json()
@@ -41,6 +42,8 @@ class FeishuNotifier:
                 logger.info("Feishu chunk sent: %s/%s", index, len(chunks))
 
     def _payload(self, title: str, content: str) -> dict:
+        title = "每日破圈赚钱情报" if SEGMENT_TITLE_PREFIX in title else title
+        content = self._strip_segment_titles(content)
         payload = {
             "msg_type": "interactive",
             "card": {
@@ -87,4 +90,5 @@ class FeishuNotifier:
         return chunks
 
     def _strip_segment_titles(self, content: str) -> str:
-        return re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
+        content = re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
+        return re.sub(r"每日破圈赚钱情报\s+\(\d+/\d+\)", "", content)
