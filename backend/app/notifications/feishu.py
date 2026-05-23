@@ -11,7 +11,8 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-SEGMENT_TITLE_PREFIX = "每日破圈赚钱情报 ("
+REPORT_TITLE = "每日破圈赚钱情报"
+SEGMENT_TITLE_PREFIX = f"{REPORT_TITLE} ("
 
 
 class FeishuNotifier:
@@ -26,14 +27,14 @@ class FeishuNotifier:
         if not self.enabled:
             raise RuntimeError("FEISHU_WEBHOOK_URL is not configured")
 
-        clean_content = self._strip_segment_titles(content)
+        clean_content = self._strip_report_titles(content)
         chunks = self._split(clean_content, self.settings.feishu_max_message_chars)
         client_kwargs = {"timeout": 30}
         if self.settings.proxy_url:
             client_kwargs["proxy"] = self.settings.proxy_url
         async with httpx.AsyncClient(**client_kwargs) as client:
             for index, chunk in enumerate(chunks, start=1):
-                payload = self._payload("每日破圈赚钱情报", chunk)
+                payload = self._payload(REPORT_TITLE, chunk)
                 response = await client.post(self.settings.feishu_webhook_url, json=payload)
                 response.raise_for_status()
                 data = response.json()
@@ -42,8 +43,8 @@ class FeishuNotifier:
                 logger.info("Feishu chunk sent: %s/%s", index, len(chunks))
 
     def _payload(self, title: str, content: str) -> dict:
-        title = "每日破圈赚钱情报" if SEGMENT_TITLE_PREFIX in title else title
-        content = self._strip_segment_titles(content)
+        title = REPORT_TITLE if SEGMENT_TITLE_PREFIX in title else title
+        content = self._strip_report_titles(content)
         payload = {
             "msg_type": "interactive",
             "card": {
@@ -67,7 +68,7 @@ class FeishuNotifier:
         return base64.b64encode(digest).decode("utf-8")
 
     def _split(self, content: str, limit: int) -> list[str]:
-        content = self._strip_segment_titles(content)
+        content = self._strip_report_titles(content)
         if len(content) <= limit:
             return [content]
         chunks: list[str] = []
@@ -90,5 +91,9 @@ class FeishuNotifier:
         return chunks
 
     def _strip_segment_titles(self, content: str) -> str:
-        content = re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
-        return re.sub(r"每日破圈赚钱情报\s+\(\d+/\d+\)", "", content)
+        return self._strip_report_titles(content)
+
+    def _strip_report_titles(self, content: str) -> str:
+        content = re.sub(rf"(?m)^#*\s*{re.escape(REPORT_TITLE)}\s+\(\d+/\d+\)\s*$\n?", "", content)
+        content = re.sub(rf"{re.escape(REPORT_TITLE)}\s+\(\d+/\d+\)", "", content)
+        return re.sub(rf"(?m)^#*\s*{re.escape(REPORT_TITLE)}\s*$\n?", "", content)

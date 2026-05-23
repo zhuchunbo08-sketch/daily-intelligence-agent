@@ -94,3 +94,49 @@ def test_radar_empty_when_no_concrete_low_cost_offer():
     )
 
     assert builder._radar_items([vague_audio, vague_forum], pain_items=[]) == []
+
+
+def test_risk_warning_does_not_reuse_unrelated_finance_method_for_ai_service():
+    builder = ReportBuilder()
+    ai_service = _item(
+        "小企业AI培训参与或衍生服务",
+        "为小商家整理客服话术库、常见问题知识库和 AI 自动回复配置，交付飞书表格小样。",
+        {
+            "opportunity": {
+                "name": "小企业AI培训参与或衍生服务",
+                "status": "是",
+                "suitable_for": "淘宝/拼多多/抖音小商家和小老板",
+            },
+            "risk": {"traps": "IPO定价过高、未来不及预期导致暴跌；地缘政治风险（如与NASA合同变化）。"},
+        },
+    )
+
+    lines = builder._render_risks([ai_service], ai_service)
+    text = "\n".join(lines)
+
+    assert "AI 客服话术库服务" in text
+    assert "高价课程" in text
+    assert "IPO" not in text
+    assert "NASA" not in text
+
+
+def test_radar_backed_ai_service_is_synced_into_pain_module():
+    builder = ReportBuilder()
+    ai_service = _item(
+        "小企业AI培训参与或衍生服务",
+        "为小商家整理客服话术库、常见问题知识库和 AI 自动回复配置，交付飞书表格小样。",
+        {
+            "opportunity": {
+                "name": "小企业AI培训参与或衍生服务",
+                "status": "是",
+                "suitable_for": "淘宝/拼多多/抖音小商家和小老板",
+            }
+        },
+    )
+
+    pain_items = builder._sync_pain_items([], [ai_service])
+    rendered = "\n".join(builder._render_pain_points(pain_items))
+
+    assert pain_items == [ai_service]
+    assert "小商家客户老问重复问题怎么办" in rendered
+    assert "可配置痛点关键词池 / 小商家 AI 服务观察" in rendered

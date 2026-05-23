@@ -38,3 +38,14 @@ def test_remaining_empty_markers_detects_after_sanitize_only():
     builder = ReportBuilder()
     cleaned = builder.sanitize_report_content("- 风险提醒：无\n- 中国落地价值：N/A\n- 可执行动作：/.")
     assert builder._remaining_empty_markers(cleaned) == []
+
+
+def test_sanitize_report_content_removes_bare_feishu_title_leaks():
+    builder = ReportBuilder()
+    content = "# 每日破圈赚钱情报\n\n## 二、今日赚钱机会雷达\n\n每日破圈赚钱情报\n\n- 机会名称：测试"
+
+    cleaned = builder.sanitize_report_content(content)
+
+    assert "每日破圈赚钱情报 (" not in cleaned
+    assert not any(line.strip() == "每日破圈赚钱情报" for line in cleaned.splitlines())
+    assert cleaned.startswith("# 每日破圈赚钱情报")

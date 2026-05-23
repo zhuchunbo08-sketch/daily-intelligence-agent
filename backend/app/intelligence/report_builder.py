@@ -234,11 +234,13 @@ class ReportBuilder:
     ) -> str:
         self.last_filtered_news = []
         self.last_filtered_pain_points = []
-        pain_items = self._pain_items(observed_items)
         change_items = self._change_items(observed_items)
+        pain_items = self._pain_items(observed_items)
         radar_items = self._radar_items(observed_items, pain_items)
+        pain_items = self._sync_pain_items(pain_items, radar_items)
         cognition_items = self._cognition_items(change_items + radar_items + pain_items)
         risk_items = self._risk_items(observed_items)
+        commercial_item = self._best_commercial_learning_item(pain_items, radar_items, change_items)
 
         lines = [
             "# 每日破圈赚钱情报",
@@ -250,7 +252,7 @@ class ReportBuilder:
             f"- 今天最重要的趋势：{self._headline(change_items, '没有发现足够重要且可落地的趋势变化')}",
             f"- 今天最值得看的机会：{self._opportunity_headline(radar_items, pain_items)}",
             f"- 今天最值得关注的痛点：{self._pain_headline(pain_items)}",
-            f"- 今天最值得避开的坑：{self._risk_headline(risk_items)}",
+            f"- 今天最值得避开的坑：{self._risk_headline(risk_items, commercial_item)}",
             f"- 今天我建议你做的一件事：{self._conclusion_action(pain_items, radar_items, change_items)}",
             "",
             "## 一、今日最值得关注的 3 条变化",
@@ -273,7 +275,7 @@ class ReportBuilder:
         lines.extend(self._render_cognition(cognition_items))
 
         lines.extend(["", "## 五、今日反割韭菜提醒", ""])
-        lines.extend(self._render_risks(risk_items))
+        lines.extend(self._render_risks(risk_items, commercial_item))
 
         lines.extend(["", "## 六、今日行动建议", ""])
         lines.extend(self._render_actions(pain_items, radar_items, change_items))
@@ -329,7 +331,7 @@ class ReportBuilder:
                     f"- 机会名称：{self._opportunity_name(item)}",
                     f"  来源：{item.source}",
                     f"  状态：{self._radar_status(item)}",
-                    f"  适合谁：{self._text(self._opportunity(item).get('suitable_for'), '有相关经验、能做低成本验证的小团队')}",
+                    f"  适合谁：{self._suitable_for(item)}",
                     f"  第一行动：{self._first_action(item)}",
                     f"  3 天内动作：{self._three_day_action(item)}",
                     f"  风险等级：{self._risk_level(item)}",
@@ -350,7 +352,7 @@ class ReportBuilder:
                     f"### 痛点 {index}：{self._pain_title(item)}",
                     "",
                     f"- 高频问题：{self._text(pain.get('question'), self._title_zh(item))}",
-                    f"- 来源平台：{item.source}",
+                    f"- 来源平台：{self._pain_source(item)}",
                     f"- 目标人群：{self._audience(item)}",
                     f"- 背后真实需求：{self._text(pain.get('real_need'), self._pain_need(item))}",
                     f"- 为什么这是个需求：{self._text(pain.get('why_need'), '它反复出现在搜索、评论或社区讨论中，并且对应省时间、省钱、省心或提高收入。')}",
@@ -394,19 +396,27 @@ class ReportBuilder:
                 break
         return lines
 
-    def _render_risks(self, items: list[IntelligenceItem]) -> list[str]:
+    def _render_risks(self, items: list[IntelligenceItem], commercial_item: IntelligenceItem | None = None) -> list[str]:
+        context_risk = self._contextual_risk_warning(commercial_item)
+        if context_risk:
+            return [context_risk]
         if not items:
             return [
                 "- 风险概念：高收益副业包装\n  判断方法：凡是承诺固定收益、强调无需能力、催促先付费的项目，先要求真实交付案例和退款规则。"
             ]
         lines: list[str] = []
         for item in items[:3]:
-            risk = self._risk(item)
+            concept = self._risk_concept(item)
+            method = self._risk_method(item)
+            if not self._risk_method_matches_concept(concept, method):
+                continue
             lines.append(
-                f"- 风险概念：{self._risk_title(item)}\n"
-                f"  判断方法：{self._sentence(risk.get('traps'), '看来源、看交付、看真实客户，避免先交大额费用。')}"
+                f"- 风险概念：{concept}\n"
+                f"  判断方法：{method}"
             )
-        return lines
+        return lines or [
+            "- 风险概念：高收益副业包装\n  判断方法：凡是承诺固定收益、强调无需能力、催促先付费的项目，先要求真实交付案例和退款规则。"
+        ]
 
     def _render_actions(
         self,
@@ -547,6 +557,7 @@ class ReportBuilder:
 
     def _pain_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
         selected: list[IntelligenceItem] = []
+        seen_pain_keys: set[str] = set()
         for item in sorted(items, key=lambda x: (self._pain_priority(x), x.final_score), reverse=True):
             if not self._is_pain_item(item):
                 continue
@@ -554,8 +565,37 @@ class ReportBuilder:
             if reason:
                 self.last_filtered_pain_points.append({"title": item.title, "reason": reason})
                 continue
+            key = self._pain_dedupe_key(item)
+            if key in seen_pain_keys:
+                continue
+            seen_pain_keys.add(key)
             selected.append(item)
         return selected[:3]
+
+    def _sync_pain_items(
+        self,
+        pain_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+    ) -> list[IntelligenceItem]:
+        synced = list(pain_items)
+        seen = {self._radar_dedupe_key(item) for item in synced}
+        for item in radar_items:
+            if not self._is_radar_backed_pain(item):
+                continue
+            key = self._radar_dedupe_key(item)
+            if key in seen:
+                continue
+            synced.append(item)
+            seen.add(key)
+            if len(synced) >= 3:
+                break
+        return synced[:3]
+
+    def _is_radar_backed_pain(self, item: IntelligenceItem) -> bool:
+        return self._is_pain_item(item) or self._is_ai_customer_service_opportunity(item) or self._has_concrete_radar_offer(item)
+
+    def _pain_dedupe_key(self, item: IntelligenceItem) -> str:
+        return re.sub(r"\s+", "", self._pain_title(item).lower())
 
     def _pain_priority(self, item: IntelligenceItem) -> int:
         text = self._raw_item_text(item).lower()
@@ -649,10 +689,12 @@ class ReportBuilder:
             return "没有筛出足够具体、可变现的高频痛点"
         return self._brief(self._pain_title(items[0]), "没有筛出足够具体、可变现的高频痛点")
 
-    def _risk_headline(self, items: list[IntelligenceItem]) -> str:
+    def _risk_headline(self, items: list[IntelligenceItem], commercial_item: IntelligenceItem | None = None) -> str:
+        if commercial_item and self._is_ai_customer_service_opportunity(commercial_item):
+            return "高价 AI 课程、加盟代理和“全自动无人客服”包装"
         if not items:
             return "高收益副业包装、刷单、拉人头和不透明代运营"
-        return self._brief(self._risk_title(items[0]), "高收益副业包装、刷单、拉人头和不透明代运营")
+        return self._brief(self._risk_concept(items[0]), "高收益副业包装、刷单、拉人头和不透明代运营")
 
     def _one_action(
         self,
@@ -933,20 +975,22 @@ class ReportBuilder:
         title = self._title_zh(item)
         trend = self._sentence(self._cognition(item).get("new"), "背后说明需求正在从泛泛关注转向可落地的工具、服务或内容。")
         domestic = self._domestic_value(item)
+        if self._radar_status(item) == "观察中":
+            return f"表面看，这是“{title}”。{trend} 对普通人来说，先把它当成平台或技术趋势观察，重点看它后续是否形成明确人群、明确付费对象和国内可迁移场景。{domestic}"
         avoid = "不要直接照搬海外平台、资本密集型项目或没有明确人群的概念。"
         if self._should_generate_action(item):
             ordinary = "普通人真正能借鉴的是找到具体人群、具体场景和一个低成本小样。"
         else:
             ordinary = "普通人暂时不必急着行动，先判断它是否真的改变平台规则、成本结构或用户需求。"
-        return f"表面上看，这是“{title}”。{trend} 它现在出现，通常和成本下降、效率提升、平台规则变化或用户需求变得更具体有关。{ordinary}{domestic} {avoid}"
+        return f"表面看，这是“{title}”。{trend} {ordinary}{domestic} {avoid}"
 
     def _title_zh(self, item: IntelligenceItem) -> str:
         title = self._text(item.title)
         if re.search(r"[\u4e00-\u9fff]", title):
-            return title[:80]
+            return self._brief(title, title, min_len=24, max_len=52)
         summary = self._text(item.summary, "")
         if re.search(r"[\u4e00-\u9fff]", summary):
-            return summary[:80]
+            return self._brief(summary, summary, min_len=24, max_len=52)
         return self._english_title_to_chinese(title)
 
     def _english_title_to_chinese(self, title: str) -> str:
@@ -961,9 +1005,16 @@ class ReportBuilder:
         return "海外案例：出现新的平台、工具或商业变化，先做趋势观察"
 
     def _pain_title(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "小商家客户老问重复问题怎么办"
         pain = self._pain(item)
         value = pain.get("question") or pain.get("title") or item.summary or item.title
         return self._sentence(value, item.title)[:60]
+
+    def _pain_source(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "可配置痛点关键词池 / 小商家 AI 服务观察"
+        return item.source
 
     def _pain(self, item: IntelligenceItem) -> dict:
         value = item.analysis.get("pain_point")
@@ -1444,6 +1495,11 @@ class ReportBuilder:
             return self._text(raw)
         return self._target_audience(item)
 
+    def _suitable_for(self, item: IntelligenceItem) -> str:
+        if self._is_ai_customer_service_opportunity(item):
+            return "淘宝、拼多多、抖音小店商家和本地小老板。"
+        return self._text(self._opportunity(item).get("suitable_for"), "有相关经验、能做低成本验证的小团队")
+
     def _difficulty(self, item: IntelligenceItem) -> str:
         if self._startup_cost(item) == "高":
             return "高"
@@ -1639,6 +1695,40 @@ class ReportBuilder:
     def _risk_title(self, item: IntelligenceItem) -> str:
         return self._opportunity_name(item)
 
+    def _contextual_risk_warning(self, item: IntelligenceItem | None) -> str | None:
+        if not item:
+            return None
+        if self._is_ai_customer_service_opportunity(item):
+            return (
+                "- 风险概念：AI 客服话术库服务被包装成高价课程或加盟代理\n"
+                "  判断方法：警惕承诺全自动无人客服、保证提升转化、收代理费或只卖通用模板的项目；先看真实店铺案例、售后边界和是否懂具体行业话术。"
+            )
+        return None
+
+    def _risk_concept(self, item: IntelligenceItem) -> str:
+        risk = self._risk(item)
+        for key in ["concept", "risk_project", "risk_name", "title"]:
+            value = risk.get(key)
+            if self._valid(value) and not self._is_generic_reference(value):
+                return self._sentence(value, self._title_zh(item))
+        return self._title_zh(item)
+
+    def _risk_method(self, item: IntelligenceItem) -> str:
+        risk = self._risk(item)
+        for key in ["judgment_method", "traps", "warning", "why_risky", "advice"]:
+            value = risk.get(key)
+            if self._valid(value) and not self._is_generic_reference(value):
+                return self._sentence(value, "看来源、看交付、看真实客户，避免先交大额费用。")
+        return "看来源、看交付、看真实客户，避免先交大额费用。"
+
+    def _risk_method_matches_concept(self, concept: str, method: str) -> bool:
+        text = f"{concept} {method}".lower()
+        finance_markers = ["ipo", "arr", "nasa", "spacex", "估值", "上市", "融资", "合同变化", "财报"]
+        ai_service_markers = ["客服", "话术", "自动回复", "小商家", "模板"]
+        if any(marker in concept for marker in ai_service_markers) and any(marker in text for marker in finance_markers):
+            return False
+        return True
+
     def _item_text(self, item: IntelligenceItem) -> str:
         return " ".join(
             [
@@ -1773,6 +1863,7 @@ class ReportBuilder:
 
     def _sanitize(self, content: str) -> str:
         content = re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
+        content = re.sub(r"(?m)^每日破圈赚钱情报\s*$\n?", "", content)
         replacements = {
             "轻松月入过万": "夸大收益承诺",
             "零基础暴富": "夸大入门门槛和收益",
@@ -1790,6 +1881,7 @@ class ReportBuilder:
     def sanitize_report_content(self, content: str) -> str:
         content = re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
         content = re.sub(r"每日破圈赚钱情报\s+\(\d+/\d+\)", "", content)
+        content = re.sub(r"(?m)^每日破圈赚钱情报\s*$\n?", "", content)
         field_fallbacks = {
             "风险提醒": "暂无明显风险，但仍需核实来源、真实案例和交付能力。",
             "风险": "暂无明显风险，但仍需核实来源、真实案例和交付能力。",
@@ -1838,6 +1930,8 @@ class ReportBuilder:
     def _validate_report_structure(self, report: str) -> None:
         if "每日破圈赚钱情报 (" in report:
             raise ValueError("Report structure invalid: Feishu segment title leaked into report content")
+        if re.search(r"(?m)^每日破圈赚钱情报\s*$", report):
+            raise ValueError("Report structure invalid: bare Feishu title leaked into report content")
         remaining_markers = self._remaining_empty_markers(report)
         if remaining_markers:
             raise ValueError(f"Report structure invalid after sanitize: empty markers remain {remaining_markers[:5]}")
