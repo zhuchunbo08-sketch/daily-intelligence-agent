@@ -292,6 +292,8 @@ class ReportBuilder:
         return self._sanitize("\n".join(lines).strip() + "\n")
 
     def _render_change_item(self, index: int, item: IntelligenceItem) -> list[str]:
+        if self._radar_status(item) == "观察中":
+            return self._render_observation_change_item(index, item)
         analysis = item.analysis
         return [
             f"### {index}. {self._title_zh(item)}",
@@ -318,6 +320,37 @@ class ReportBuilder:
             "",
             "#### 可执行动作",
             self._first_action(item),
+            "",
+        ]
+
+    def _render_observation_change_item(self, index: int, item: IntelligenceItem) -> list[str]:
+        analysis = item.analysis
+        source = urlparse(item.url or "").netloc or item.source
+        return [
+            f"### {index}. {self._title_zh(item)}",
+            "",
+            f"- 发生了什么：{self._brief(analysis.get('what_happened') or item.summary or item.title, item.title, max_len=60)}",
+            "- 为什么重要：这是趋势信号，暂未形成普通人可验证机会。",
+            "- 和我有什么关系：先看它是否改变成本、效率、分发或信任结构。",
+            f"- 中国落地价值：{self._domestic_value(item)}",
+            "- 机会判断：观察中",
+            "- 风险提醒：不要把趋势直接包装成确定收益项目。",
+            f"- 来源：{source}",
+            "",
+            "#### 我的理解",
+            "只做趋势观察；等出现明确人群、付费对象和低成本交付物再跟进。",
+            "",
+            "#### 历史类比 / 成熟市场参照",
+            self._historical_observation_line(item),
+            "",
+            "#### 认知破界",
+            "- 大多数人的误解：把热度当机会。",
+            "- 高认知视角：先看交易和迁移路径。",
+            "- 我应该更新的判断：没有明确交付物，就只观察。",
+            "- 3 年后可能变成：可能沉淀为工作流，也可能消失。",
+            "",
+            "#### 可执行动作",
+            NO_ACTION,
             "",
         ]
 
@@ -413,7 +446,7 @@ class ReportBuilder:
                 "- 风险概念：高收益副业包装\n  判断方法：凡是承诺固定收益、强调无需能力、催促先付费的项目，先要求真实交付案例和退款规则。"
             ]
         lines: list[str] = []
-        for item in items[:3]:
+        for item in items[:2]:
             concept = self._risk_concept(item)
             method = self._risk_method(item)
             if not self._risk_method_matches_concept(concept, method):
@@ -438,13 +471,9 @@ class ReportBuilder:
             action = self._three_day_action(primary) if primary in radar_items else self._pain_action(primary)
             if action != NO_ACTION and action != NO_THREE_DAY_ACTION:
                 actions.append(f"1. 今天先验证“{self._action_theme(primary)}”这个痛点：\n{action}")
-        elif change_items and self._should_generate_action(change_items[0]):
-            action = self._first_action(change_items[0])
-            if action != NO_ACTION:
-                actions.append(f"1. {action}")
         if not actions:
-            actions.append("1. 今天用 30 分钟整理 3 个真实痛点问题，只记录人群、场景、现有方案和是否有人付费，不急着行动。")
-        return self._dedupe_lines(actions)[:2]
+            actions.append("1. 今天不建议行动，只观察趋势。")
+        return self._dedupe_lines(actions)[:1]
 
     def _render_business_model(
         self,
@@ -606,16 +635,40 @@ class ReportBuilder:
         return re.sub(r"\s+", "", self._pain_title(item).lower())
 
     def _pain_priority(self, item: IntelligenceItem) -> int:
-        text = self._raw_item_text(item).lower()
-        if any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库", "回复太慢"]):
-            return 5
-        if any(word in text for word in ["详情页", "主图", "店铺", "商家"]):
-            return 4
-        if any(word in text for word in ["ai工具", "ai 工具", "prompt", "自动化"]):
-            return 3
-        if any(word in text for word in ["孩子", "育儿", "家长"]):
-            return 2
-        return 1
+        text = self._filter_text(item).lower()
+        if any(
+            word in text
+            for word in [
+                "孩子",
+                "育儿",
+                "家长",
+                "衣架",
+                "收纳",
+                "小户型",
+                "玩具",
+                "老人",
+                "宠物",
+                "猫毛",
+                "掉毛",
+                "除毛",
+                "厨房",
+                "清洁",
+                "做饭",
+                "油烟",
+                "穿搭",
+                "小商品",
+            ]
+        ):
+            return 60
+        if any(word in text for word in ["效率", "重复劳动", "不会写文案", "表格", "办公", "整理资料", "沟通"]):
+            return 50
+        if any(word in text for word in ["客户老问", "重复问题", "客服", "自动回复", "知识库", "回复太慢", "详情页", "主图", "店铺", "商家", "选品"]):
+            return 40
+        if any(word in text for word in ["小红书", "抖音", "视频号", "公众号", "播放量", "选题", "剪辑", "标题", "内容创作"]):
+            return 30
+        if any(word in text for word in ["ai工具", "ai 工具", "prompt", "自动化", "不会用 ai", "不会用ai"]):
+            return 20
+        return 10
 
     def _change_filter_reason(self, item: IntelligenceItem) -> str | None:
         text = self._item_text(item).lower()
@@ -756,7 +809,13 @@ class ReportBuilder:
     ) -> IntelligenceItem | None:
         candidates = [item for item in pain_items + radar_items if self._is_commercial_learning_source(item)]
         if not candidates:
-            candidates = [item for item in change_items if self._is_commercial_learning_source(item)]
+            candidates = [
+                item
+                for item in change_items
+                if self._is_commercial_learning_source(item)
+                and self._should_generate_action(item)
+                and self._has_concrete_radar_offer(item)
+            ]
         if not candidates:
             return None
 
@@ -1090,6 +1149,8 @@ class ReportBuilder:
     def _platforms(self, item: IntelligenceItem) -> str:
         text = (self._pain_signal_text(item) if self._is_pain_item(item) else self._raw_item_text(item)).lower()
         platforms: list[str] = []
+        if self._is_ai_customer_service_opportunity(item):
+            return "微信私域 / 飞书 / 淘宝服务市场 / 本地生活 / 公众号 / 飞书多维表格 / 企业服务"
         if self._depends_on_overseas_restriction(item) or (self._is_overseas(item) and not self._has_ordinary_relevance(item)):
             return ""
         if any(word in text for word in ["衣架", "收纳", "宠物", "清洁", "厨房", "做饭", "穿搭", "小商品", "货源"]):
@@ -1132,6 +1193,8 @@ class ReportBuilder:
     def _startup_cost(self, item: IntelligenceItem) -> str:
         text = self._item_text(item).lower()
         raw = str(self._opportunity(item).get("startup_cost") or "")
+        if self._is_ai_customer_service_opportunity(item):
+            return "低"
         if self._is_high_capital(item) or any(word in raw for word in ["高", "重", "大"]):
             return "高"
         if "中" in raw:
@@ -1140,6 +1203,8 @@ class ReportBuilder:
 
     def _risk_level(self, item: IntelligenceItem) -> str:
         raw = str(self._opportunity(item).get("risk_level") or "")
+        if self._is_ai_customer_service_opportunity(item) and item.risk_score < 7 and "高" not in raw:
+            return "低"
         if item.risk_score >= 7 or "高" in raw:
             return "高"
         if item.risk_score >= 4 or "中" in raw:
@@ -1804,10 +1869,23 @@ class ReportBuilder:
         return "看来源、看交付、看真实客户，避免先交大额费用。"
 
     def _risk_method_matches_concept(self, concept: str, method: str) -> bool:
+        concept_text = concept.lower()
+        method_text = method.lower()
         text = f"{concept} {method}".lower()
         finance_markers = ["ipo", "arr", "nasa", "spacex", "估值", "上市", "融资", "合同变化", "财报"]
         ai_service_markers = ["客服", "话术", "自动回复", "小商家", "模板"]
+        pet_markers = ["宠物", "猫毛", "掉毛", "除毛", "粘毛"]
+        content_markers = ["小红书", "抖音", "视频号", "公众号", "播放量", "选题", "内容"]
+        ai_course_markers = ["ai 课程", "ai课程", "高价课程", "加盟", "代理", "全自动无人客服", "万能课"]
         if any(marker in concept for marker in ai_service_markers) and any(marker in text for marker in finance_markers):
+            return False
+        if any(marker in method_text for marker in finance_markers) and not any(marker in concept_text for marker in finance_markers):
+            return False
+        if any(marker in concept_text for marker in pet_markers) and any(marker in method_text for marker in finance_markers + ai_course_markers):
+            return False
+        if any(marker in concept_text for marker in content_markers) and any(marker in method_text for marker in finance_markers):
+            return False
+        if any(marker in method_text for marker in ai_course_markers) and not any(marker in concept_text for marker in ai_service_markers):
             return False
         return True
 
