@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.collectors.source_registry import SourceRegistry
 from app.core.config import get_settings
 from app.core.time import daily_window, now_local
-from app.db.models import IntelligenceItem, PushLog, Report, RunLog
+from app.db.models import IntelligenceItem, PushLog, Report, RunLog, TrendMemory
 from app.intelligence.analyzer import AnalysisService
 from app.intelligence.dedupe import DedupeService
 from app.intelligence.report_builder import ReportBuilder
@@ -126,13 +126,14 @@ class DailyReportJob:
                 report_date=report_date,
                 window_start=window_start,
                 window_end=window_end,
-                title=f"每日破圈赚钱情报 {report_date}",
+                title=f"每日商业观察 {report_date}",
                 content=report_content,
                 item_count=len(push_items),
             )
             db.add(report)
             db.commit()
             db.refresh(report)
+            self._record_trend_memory(db, report)
 
             await self._push_report(db, report, push_items)
 
@@ -246,12 +247,37 @@ class DailyReportJob:
                 item.pushed_at = pushed_at
             db.commit()
 
+    def _record_trend_memory(self, db: Session, report: Report) -> None:
+        for record in self.report_builder.last_world_change_records:
+            item_id = record.get("item_id")
+            observed_at = record.get("observed_at") or report.window_end
+            if not item_id:
+                continue
+            memory = TrendMemory(
+                report_id=report.id,
+                item_id=item_id,
+                observed_at=observed_at,
+                trend_key=record.get("trend_key") or str(item_id),
+                title=record.get("title") or "",
+                category=record.get("category"),
+                source=record.get("source"),
+                url=record.get("url"),
+                judgment=record.get("judgment"),
+                evidence_json=json.dumps(record.get("evidence") or {}, ensure_ascii=False),
+                status="observing",
+            )
+            db.add(memory)
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+
     async def _send_failure_alert(self, db: Session, message: str, detail: str | None) -> None:
         hint = self._failure_hint(message, detail)
         detail_excerpt = (detail or "").strip()
         detail_line = f"- 详细信息：{detail_excerpt[:500]}\n\n" if detail_excerpt else ""
         content = (
-            "# 每日破圈赚钱情报运行失败\n\n"
+            "# 每日商业观察运行失败\n\n"
             f"- 时间：{now_local():%Y-%m-%d %H:%M:%S}\n"
             f"- 错误：{message}\n\n"
             f"{detail_line}"
@@ -265,7 +291,7 @@ class DailyReportJob:
             logger.exception("Feishu failure alert failed")
             db.add(PushLog(report_id=None, channel="feishu", status="failed", error=str(exc)))
             try:
-                self.email.send("每日破圈赚钱情报运行失败", f"{content}\n\n{detail or ''}")
+                self.email.send("每日商业观察运行失败", f"{content}\n\n{detail or ''}")
                 db.add(PushLog(report_id=None, channel="email", status="failure_alert_sent"))
             except Exception as email_exc:
                 db.add(
@@ -283,10 +309,10 @@ class DailyReportJob:
         text = f"{message}\n{detail or ''}"
         if "Report structure invalid" in text:
             if "missing" in text:
-                return "日报结构缺少必需模块，错误信息中通常包含具体标题和缺失字段。"
+                return "日报动态结构校验失败，错误信息中通常包含具体标题和字段。"
             if "empty marker" in text:
                 return "日报中出现普通空值标记，请检查对应字段的 AI 输出或 fallback。"
             if "Feishu segment title" in text:
                 return "飞书分段标题混入日报正文，请检查 report.content 和 Feishu 分段逻辑。"
-            return "日报结构校验失败，请优先查看错误中的标题、字段或模块名称。"
+            return "日报结构校验失败，请优先查看错误中的标题、字段或空值标记。"
         return "非结构校验错误，请检查采集、AI 分析、数据库和推送日志。"

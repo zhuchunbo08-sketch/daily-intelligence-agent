@@ -23,3 +23,13 @@
   - 真实飞书推送是否仍有标题残留。
   - AI 模型返回内容是否绕过兜底规则。
   - 自动 07:00 任务是否稳定执行。
+
+## 2026-07-08
+
+- 本地尝试按新定位生成并推送一条日报。
+  - 生成成功，最新日报内容为：“今天没有发现值得占用你时间的重要变化。”
+  - 第一次从 `backend` 目录运行未加载根目录 `.env`，推送失败：`FEISHU_WEBHOOK_URL is not configured`。
+  - 从项目根目录运行后发现本地 `FEISHU_WEBHOOK_URL` 是 token-only 形式，已补代码兼容 token-only webhook。
+  - 修复 URL 后飞书接口可达，但返回 `code=19001`，含义为 incoming webhook access token invalid；当前本地 webhook token 无效或已过期。
+  - GDELT 曾返回 `429 Too Many Requests`，属于数据源限流，非本次推送失败主因。
+- 未读取或输出 `.env` 明文内容，未成功发出真实飞书消息。

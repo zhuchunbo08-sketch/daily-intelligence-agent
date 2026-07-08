@@ -27,7 +27,7 @@ def _has_standalone_report_title(text: str) -> bool:
 
 def test_split_and_payload_never_put_segment_title_in_markdown_content():
     notifier = FeishuNotifier()
-    content = "# 每日破圈赚钱情报\n\n" + "\n\n".join(f"段落 {i}：" + "内容" * 20 for i in range(10))
+    content = "# 每日商业观察\n\n" + "\n\n".join(f"段落 {i}：" + "内容" * 20 for i in range(10))
 
     assert SEGMENT_TITLE_PREFIX not in content
 
@@ -36,7 +36,7 @@ def test_split_and_payload_never_put_segment_title_in_markdown_content():
     assert all(SEGMENT_TITLE_PREFIX not in chunk for chunk in chunks)
     assert all(not _has_standalone_report_title(chunk) for chunk in chunks)
 
-    payloads = [notifier._payload("每日破圈赚钱情报 (2/2)", chunk) for chunk in chunks]
+    payloads = [notifier._payload("每日商业观察 (2/2)", chunk) for chunk in chunks]
     for payload in payloads:
         for value in _collect_markdown_body_values(payload):
             assert SEGMENT_TITLE_PREFIX not in value
@@ -45,7 +45,7 @@ def test_split_and_payload_never_put_segment_title_in_markdown_content():
 
 def test_strip_segment_titles_removes_existing_leaks_anywhere():
     notifier = FeishuNotifier()
-    content = "# 每日破圈赚钱情报\n\n每日破圈赚钱情报\n\n每日破圈赚钱情报 (2/2)\n\n正文"
+    content = "# 每日商业观察\n\n每日商业观察\n\n每日商业观察 (2/2)\n\n每日破圈赚钱情报 (2/2)\n\n正文"
 
     cleaned = notifier._strip_segment_titles(content)
 

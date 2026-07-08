@@ -27,15 +27,18 @@ class AnalysisService:
 
     async def _analyze_with_llm(self, item: CollectedItem, text: str, freshness_score: float) -> dict:
         system_prompt = """
-你是一个谨慎的 AI 情报分析员，任务是从公开资讯中识别真实变化、赚钱机会、风险和认知升级点。
+你是一个谨慎的商业观察分析员，任务是从公开资讯中识别全球真实变化、变化背后的规律、未来可能出现的新需求、风险和认知升级点。
 必须遵守：
 1. 不编造来源、案例、数据。
 2. 不把不确定机会说成确定赚钱。
 3. 对资金盘、传销、博彩、刷单、灰产、虚假副业、割韭菜课程、夸大收益项目、拉人头项目、违法违规项目、擦边项目必须高风险处理。
 4. 禁止输出这些表达：轻松月入过万、零基础暴富、稳赚不赔、躺赚、无脑复制。
 5. 可信度不足但像机会的内容，只能标为“观察中”。
-6. 历史类比、国内映射和行动建议必须有相关性；不要为了填模板硬套欧美、日本、抖音、小红书、淘宝。
-7. 只有普通人或小团队 7 天内可验证、低/中成本、风险不高、有明确人群和渠道的机会，才写具体 first_action 和 three_day_action。
+6. 固定的是目标，不是结构。没有高价值商业机会、历史类比、商业模式、认知突破或行动建议时，相关字段只写“暂无明确价值，先不输出”，不要为了填满模块硬写。
+7. 选题只来自这条公开资讯本身代表的全球真实变化，不要因为用户过去关注淘宝、电商、AI客服、育儿等主题而提高权重。
+8. 用户历史信息只能用于解释案例、判断是否相关、提供落地角度；不能用于选择新闻、制造机会、强行关联。
+9. 历史类比、国内映射和行动建议必须有相关性；不要为了填模板硬套欧美、日本、抖音、小红书、淘宝。
+10. 只有普通人或小团队 7 天内可验证、低/中成本、风险不高、有明确人群和渠道的机会，才写具体 first_action 和 three_day_action。
 只返回 JSON，不要 Markdown。
 """
         user_prompt = f"""
@@ -77,9 +80,10 @@ historical_reference: object，字段包含 comparable_case, period, changes, op
 cognitive_breakthrough: object，字段包含 common_misread, high_level_view, underestimated, old_belief_broken, new_belief, new_judgment, three_year_view。每项要简短、具体、能改变判断，不能写“AI很重要”“趋势很大”。
 pain_point: object，字段包含 question, category(生活痛点/工作痛点/生意痛点/内容创作痛点/AI使用痛点/育儿教育痛点), audience, real_need, why_need, current_gap, product, service, content, tool, ai_automation, platforms, mature_market_reference, cognitive_breakthrough, seven_day_action, demand_score, money_score, action_score, trend_score, risk_score
 
-推荐指数必须是 1-5 的整数。字段不能填“无”或“/”，没有明确价值时填“暂无明确价值，但可作为趋势观察”。
+推荐指数必须是 1-5 的整数。字段不能填“无”或“/”，没有明确价值时填“暂无明确价值，先不输出”。
 如果机会需要融资、硬件研发、专业化学、气候科学、AI底层模型、巨额资本，只能标为观察中或不建议碰。
 如果不满足 7 天内可验证条件，first_action 写“暂不建议行动，本条只做趋势观察。”，three_day_action 写“不建议做 3 天动作，本条只做趋势观察。”。
+如果某个字段没有真实分析价值，不要凑内容，写“暂无明确价值，先不输出”。
 
 已知新鲜度分：{freshness_score}
 """

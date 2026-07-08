@@ -11,13 +11,16 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-REPORT_TITLE = "每日破圈赚钱情报"
+REPORT_TITLE = "每日商业观察"
+LEGACY_REPORT_TITLE = "每日破圈赚钱情报"
 SEGMENT_TITLE_PREFIX = f"{REPORT_TITLE} ("
 
 
 class FeishuNotifier:
     def __init__(self) -> None:
         self.settings = get_settings()
+        if self.settings.feishu_webhook_source:
+            logger.info("Using %s for Feishu webhook", self.settings.feishu_webhook_source)
 
     @property
     def enabled(self) -> bool:
@@ -29,7 +32,7 @@ class FeishuNotifier:
 
         clean_content = self._strip_report_titles(content)
         chunks = self._split(clean_content, self.settings.feishu_max_message_chars)
-        client_kwargs = {"timeout": 30}
+        client_kwargs = {"timeout": 30, "trust_env": False}
         if self.settings.proxy_url:
             client_kwargs["proxy"] = self.settings.proxy_url
         async with httpx.AsyncClient(**client_kwargs) as client:
@@ -38,9 +41,20 @@ class FeishuNotifier:
                 response = await client.post(self.settings.feishu_webhook_url, json=payload)
                 response.raise_for_status()
                 data = response.json()
-                if data.get("code", 0) != 0:
-                    raise RuntimeError(f"Feishu push failed: {data}")
+                self._raise_for_feishu_error(data)
                 logger.info("Feishu chunk sent: %s/%s", index, len(chunks))
+
+    def _raise_for_feishu_error(self, data: dict) -> None:
+        code = data.get("code", 0)
+        if code == 0:
+            return
+        if code == 19001:
+            raise RuntimeError(
+                "Feishu push failed: incoming webhook access token invalid. "
+                f"Check {self.settings.feishu_webhook_source or 'FEISHU_WEBHOOK'}."
+            )
+        message = data.get("msg") or "unknown error"
+        raise RuntimeError(f"Feishu push failed: code={code}, msg={message}")
 
     def _payload(self, title: str, content: str) -> dict:
         title = REPORT_TITLE if SEGMENT_TITLE_PREFIX in title else title
@@ -94,6 +108,8 @@ class FeishuNotifier:
         return self._strip_report_titles(content)
 
     def _strip_report_titles(self, content: str) -> str:
-        content = re.sub(rf"(?m)^#*\s*{re.escape(REPORT_TITLE)}\s+\(\d+/\d+\)\s*$\n?", "", content)
-        content = re.sub(rf"{re.escape(REPORT_TITLE)}\s+\(\d+/\d+\)", "", content)
-        return re.sub(rf"(?m)^#*\s*{re.escape(REPORT_TITLE)}\s*$\n?", "", content)
+        for title in [REPORT_TITLE, LEGACY_REPORT_TITLE]:
+            content = re.sub(rf"(?m)^#*\s*{re.escape(title)}\s+\(\d+/\d+\)\s*$\n?", "", content)
+            content = re.sub(rf"{re.escape(title)}\s+\(\d+/\d+\)", "", content)
+            content = re.sub(rf"(?m)^#*\s*{re.escape(title)}\s*$\n?", "", content)
+        return content

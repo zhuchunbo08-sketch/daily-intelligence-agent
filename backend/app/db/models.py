@@ -77,6 +77,30 @@ class Report(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class TrendMemory(Base):
+    __tablename__ = "trend_memory"
+    __table_args__ = (
+        UniqueConstraint("report_id", "item_id", name="uq_trend_memory_report_item"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    report_id: Mapped[int] = mapped_column(Integer, index=True)
+    item_id: Mapped[int] = mapped_column(Integer, index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime)
+    trend_key: Mapped[str] = mapped_column(String(255), index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str | None] = mapped_column(String(128))
+    source: Mapped[str | None] = mapped_column(String(255))
+    url: Mapped[str | None] = mapped_column(Text)
+    judgment: Mapped[str | None] = mapped_column(Text)
+    evidence_json: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="observing")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class RunLog(Base):
     __tablename__ = "run_logs"
 

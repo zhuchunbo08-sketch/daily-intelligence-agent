@@ -9,7 +9,7 @@ from app.intelligence.report_builder import ReportBuilder
 def test_sanitize_report_content_replaces_empty_markers():
     builder = ReportBuilder()
     content = """
-# 每日破圈赚钱情报
+# 每日商业观察
 
 - 风险提醒：无
 - 中国落地价值：无
@@ -42,10 +42,13 @@ def test_remaining_empty_markers_detects_after_sanitize_only():
 
 def test_sanitize_report_content_removes_bare_feishu_title_leaks():
     builder = ReportBuilder()
-    content = "# 每日破圈赚钱情报\n\n## 二、今日赚钱机会雷达\n\n每日破圈赚钱情报\n\n- 机会名称：测试"
+    content = "# 每日商业观察\n\n## 世界发生了什么\n\n每日商业观察\n\n每日破圈赚钱情报\n\n- 变化：测试"
 
     cleaned = builder.sanitize_report_content(content)
 
+    assert "每日商业观察 (" not in cleaned
     assert "每日破圈赚钱情报 (" not in cleaned
+    assert not any(line.strip() == "每日商业观察" for line in cleaned.splitlines())
     assert not any(line.strip() == "每日破圈赚钱情报" for line in cleaned.splitlines())
-    assert cleaned.startswith("# 每日破圈赚钱情报")
+    assert cleaned.startswith("# 每日商业观察")
+    assert cleaned.count("每日商业观察") == 1

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
 
     feishu_webhook: str = ""
     feishu_webhook_url: str = ""
+    feishu_webhook_source: str = ""
     feishu_secret: str = ""
     feishu_max_message_chars: int = 3500
     push_dry_run: bool = False
@@ -61,6 +62,11 @@ class Settings(BaseSettings):
         if self.app_timezone:
             self.timezone = self.app_timezone
 
+        if not Path(self.sources_config_path).exists():
+            backend_sources_path = Path("backend/config/sources.json")
+            if backend_sources_path.exists():
+                self.sources_config_path = str(backend_sources_path)
+
         if self.deepseek_api_key and not self.ai_api_key:
             self.ai_api_key = self.deepseek_api_key
             self.ai_base_url = "https://api.deepseek.com"
@@ -74,8 +80,15 @@ class Settings(BaseSettings):
             self.ai_base_url = "https://api.openai.com/v1"
             self.ai_model = self.openai_model or self.ai_model
 
-        if self.feishu_webhook and not self.feishu_webhook_url:
-            self.feishu_webhook_url = self.feishu_webhook
+        webhook_value = self.feishu_webhook or self.feishu_webhook_url
+        self.feishu_webhook_source = (
+            "FEISHU_WEBHOOK"
+            if self.feishu_webhook
+            else "FEISHU_WEBHOOK_URL"
+            if self.feishu_webhook_url
+            else ""
+        )
+        self.feishu_webhook_url = self._normalize_feishu_webhook(webhook_value)
 
         if self.email_host and not self.smtp_host:
             self.smtp_host = self.email_host
@@ -93,6 +106,18 @@ class Settings(BaseSettings):
     @property
     def sources_path(self) -> Path:
         return Path(self.sources_config_path)
+
+    @staticmethod
+    def _normalize_feishu_webhook(value: str) -> str:
+        value = (value or "").strip()
+        if not value:
+            return ""
+        if value.startswith(("http://", "https://")):
+            return value
+        raw_webhook = value.lstrip("/")
+        if "/" not in raw_webhook and "." not in raw_webhook:
+            return f"https://open.feishu.cn/open-apis/bot/v2/hook/{raw_webhook}"
+        return f"https://{raw_webhook}"
 
 
 @lru_cache

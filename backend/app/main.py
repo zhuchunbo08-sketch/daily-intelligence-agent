@@ -9,6 +9,7 @@ from app.api.reports import router as reports_router
 from app.api.runs import router as runs_router
 from app.api.settings import router as settings_router
 from app.api.sources import router as sources_router
+from app.api.trends import router as trends_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.scheduler import start_scheduler, stop_scheduler
@@ -33,6 +34,7 @@ app.include_router(reports_router)
 app.include_router(sources_router)
 app.include_router(opportunities_router)
 app.include_router(settings_router)
+app.include_router(trends_router)
 
 
 @app.get("/health")

@@ -8,6 +8,9 @@ from app.db.models import IntelligenceItem
 from app.intelligence.text import BLOCKED_PHRASES
 
 FALLBACK = "暂无明确价值，但可作为趋势观察"
+REPORT_TITLE = "每日商业观察"
+LEGACY_REPORT_TITLE = "每日破圈赚钱情报"
+NO_VALUABLE_REPORT = "今天没有发现值得占用你时间的重要变化。"
 SECTION_HEADINGS = [
     "## 先说结论",
     "## 一、今日最值得关注的 3 条变化",
@@ -210,6 +213,7 @@ class ReportBuilder:
         self.settings = get_settings()
         self.last_filtered_news: list[dict] = []
         self.last_filtered_pain_points: list[dict] = []
+        self.last_world_change_records: list[dict] = []
 
     async def build(
         self,
@@ -234,6 +238,7 @@ class ReportBuilder:
     ) -> str:
         self.last_filtered_news = []
         self.last_filtered_pain_points = []
+        self.last_world_change_records = []
         change_items = self._change_items(observed_items)
         pain_items = self._pain_items(observed_items)
         radar_items = self._radar_items(observed_items, pain_items)
@@ -242,54 +247,202 @@ class ReportBuilder:
         risk_items = self._risk_items(observed_items)
         commercial_item = self._best_commercial_learning_item(pain_items, radar_items, change_items)
 
+        sections: list[tuple[str, list[str]]] = []
+        self._add_section(sections, "世界发生了什么", self._dynamic_world_change(change_items))
+        self._add_section(sections, "一个变化背后的商业规律", self._dynamic_business_law(change_items, radar_items, pain_items))
+        self._add_section(sections, "一个未来可能出现的新需求", self._dynamic_future_need(change_items, pain_items))
+        self._add_section(sections, "一个被低估的机会", self._dynamic_underestimated_opportunity(radar_items))
+        self._add_section(sections, "一个值得警惕的泡沫", self._dynamic_risk(risk_items, commercial_item))
+        self._add_section(sections, "一个认知升级", self._dynamic_cognition(cognition_items, pain_items, radar_items, change_items))
+        self._add_section(sections, "一个商业模式拆解", self._dynamic_business_model(commercial_item))
+        self._add_section(sections, "一个生活痛点发现", self._dynamic_life_pain(pain_items))
+        self._add_section(sections, "一个历史阶段类比", self._dynamic_historical_reference(change_items, radar_items))
+
+        if not sections:
+            return NO_VALUABLE_REPORT
+
+        for item in self._dedupe_items(change_items + radar_items + pain_items + cognition_items):
+            self.last_world_change_records.append(self._trend_memory_record(item, report_date))
+
         lines = [
-            "# 每日破圈赚钱情报",
+            f"# {REPORT_TITLE}",
             "",
             f"日期：{report_date}",
-            f"覆盖时间：{window_start:%Y-%m-%d %H:%M} - {window_end:%Y-%m-%d %H:%M}",
+            f"观察窗口：{window_start:%Y-%m-%d %H:%M} - {window_end:%Y-%m-%d %H:%M}",
             "",
-            "## 先说结论",
-            f"- 今天最重要的趋势：{self._headline(change_items, '没有发现足够重要且可落地的趋势变化')}",
-            f"- 今天最值得看的机会：{self._opportunity_headline(radar_items, pain_items)}",
-            f"- 今天最值得关注的痛点：{self._pain_headline(pain_items)}",
-            f"- 今天最值得避开的坑：{self._risk_headline(risk_items, commercial_item)}",
-            f"- 今天我建议你做的一件事：{self._conclusion_action(pain_items, radar_items, change_items)}",
-            "",
-            "## 一、今日最值得关注的 3 条变化",
-            "",
+            "固定的是目标，不是结构。今天只保留真正值得占用注意力的观察。",
         ]
-
-        if change_items:
-            for index, item in enumerate(change_items[:3], start=1):
-                lines.extend(self._render_change_item(index, item))
-        else:
-            lines.append("今天没有通过商业相关性、可落地性和风险过滤的重点变化。")
-
-        lines.extend(["", "## 二、今日赚钱机会雷达", ""])
-        lines.extend(self._render_radar(radar_items))
-
-        lines.extend(["", "## 三、全网高频痛点与变现机会", ""])
-        lines.extend(self._render_pain_points(pain_items))
-
-        lines.extend(["", "## 四、今日认知升级", ""])
-        lines.extend(self._render_cognition(cognition_items, pain_items, radar_items, change_items))
-
-        lines.extend(["", "## 五、今日反割韭菜提醒", ""])
-        lines.extend(self._render_risks(risk_items, commercial_item))
-
-        lines.extend(["", "## 六、今日行动建议", ""])
-        lines.extend(self._render_actions(pain_items, radar_items, change_items))
-
-        lines.extend(["", "## 七、今日商业模式拆解", ""])
-        lines.extend(self._render_business_model(pain_items, radar_items, change_items))
-
-        lines.extend(["", "## 八、今日一个反常识判断", ""])
-        lines.extend(self._render_counterintuitive_judgment(pain_items, radar_items, change_items))
-
-        lines.extend(["", "## 九、今日认知边界扩展", ""])
-        lines.extend(self._render_boundary_expansion(pain_items, radar_items, change_items))
+        for title, body in sections:
+            lines.extend(["", f"## {title}", ""])
+            lines.extend(body)
 
         return self._sanitize("\n".join(lines).strip() + "\n")
+
+    def _add_section(
+        self,
+        sections: list[tuple[str, list[str]]],
+        title: str,
+        body: list[str],
+    ) -> None:
+        if body:
+            sections.append((title, body))
+
+    def _dynamic_world_change(self, items: list[IntelligenceItem]) -> list[str]:
+        if not items:
+            return []
+        lines: list[str] = []
+        for item in items[:2]:
+            lines.extend(
+                [
+                    f"### {self._title_zh(item)}",
+                    "",
+                    f"{self._sentence(item.analysis.get('what_happened'), item.summary or item.title)}",
+                    "",
+                    f"重要性：{self._sentence(item.analysis.get('why_important'), '它可能改变成本、效率、分发、规则或用户行为。')}",
+                    f"来源：{urlparse(item.url or '').netloc or item.source}",
+                    "",
+                ]
+            )
+        return lines
+
+    def _dynamic_business_law(
+        self,
+        change_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+        pain_items: list[IntelligenceItem],
+    ) -> list[str]:
+        item = self._first_with_real_value(change_items + radar_items + pain_items)
+        if not item:
+            return []
+        insight = self._understanding(item)
+        if not self._valid(insight) or self._is_generic_reference(insight):
+            return []
+        return [insight]
+
+    def _dynamic_future_need(
+        self,
+        change_items: list[IntelligenceItem],
+        pain_items: list[IntelligenceItem],
+    ) -> list[str]:
+        item = self._first_with_real_value(pain_items) or self._first_with_real_value(change_items)
+        if not item:
+            return []
+        if self._is_pain_item(item):
+            return [
+                f"未来需求：{self._pain_need_text(item)}",
+                f"现在的缺口：{self._pain_current_gap(item)}",
+            ]
+        relationship = self._sentence(self._relationship_line(item), "")
+        if not self._valid(relationship) or "可作为" in relationship:
+            return []
+        return [f"可能出现的新需求：{relationship}"]
+
+    def _dynamic_underestimated_opportunity(self, items: list[IntelligenceItem]) -> list[str]:
+        if not items:
+            return []
+        item = items[0]
+        return [
+            f"机会名称：{self._opportunity_name(item)}",
+            f"真实依据：{self._sentence(item.summary, item.title)}",
+            f"适合谁：{self._suitable_for(item)}",
+            f"最低成本验证：{self._first_action(item)}",
+            f"风险边界：{self._risk_level(item)}风险，不能把趋势说成确定收益。",
+        ]
+
+    def _dynamic_risk(
+        self,
+        risk_items: list[IntelligenceItem],
+        commercial_item: IntelligenceItem | None,
+    ) -> list[str]:
+        context_risk = self._contextual_risk_warning(commercial_item)
+        if context_risk:
+            return [context_risk.removeprefix("- ")]
+        for item in risk_items:
+            concept = self._risk_concept(item)
+            method = self._risk_method(item)
+            if self._risk_method_matches_concept(concept, method):
+                return [f"风险概念：{concept}", f"判断方法：{method}"]
+        return []
+
+    def _dynamic_cognition(
+        self,
+        cognition_items: list[IntelligenceItem],
+        pain_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+        change_items: list[IntelligenceItem],
+    ) -> list[str]:
+        lines = self._render_cognition(cognition_items, pain_items, radar_items, change_items)
+        generic = "真正值得看的不是热点本身"
+        return [line.removeprefix("- ") for line in lines if generic not in line][:2]
+
+    def _dynamic_business_model(self, item: IntelligenceItem | None) -> list[str]:
+        if not item:
+            return []
+        return self._render_business_model([item] if self._is_pain_item(item) else [], [item], [])
+
+    def _dynamic_life_pain(self, items: list[IntelligenceItem]) -> list[str]:
+        item = next((candidate for candidate in items if candidate.source_type != "pain_keywords"), None)
+        if not item:
+            return []
+        return [
+            f"痛点：{self._pain_question(item)}",
+            f"人群：{self._audience(item)}",
+            f"真实需求：{self._pain_need_text(item)}",
+            f"先不做结论，只记录它是否持续出现。",
+        ]
+
+    def _dynamic_historical_reference(
+        self,
+        change_items: list[IntelligenceItem],
+        radar_items: list[IntelligenceItem],
+    ) -> list[str]:
+        for item in change_items + radar_items:
+            if self._should_render_historical_reference(item):
+                lines = self._render_historical_reference(item)
+                if lines and NO_HISTORY_REFERENCE not in "\n".join(lines):
+                    return lines
+        return []
+
+    def _first_with_real_value(self, items: list[IntelligenceItem]) -> IntelligenceItem | None:
+        for item in items:
+            if item.final_score >= self.settings.min_final_score or item.trend_score >= 6 or item.cognition_score >= 6:
+                return item
+        return None
+
+    def _dedupe_items(self, items: list[IntelligenceItem]) -> list[IntelligenceItem]:
+        seen: set[int] = set()
+        unique: list[IntelligenceItem] = []
+        for item in items:
+            key = item.id or id(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return unique
+
+    def _trend_memory_record(self, item: IntelligenceItem, report_date: str) -> dict:
+        return {
+            "item_id": item.id,
+            "observed_at": item.event_time or item.published_at,
+            "trend_key": self._trend_key(item),
+            "title": self._title_zh(item),
+            "category": item.category,
+            "source": item.source,
+            "url": item.url,
+            "judgment": self._cognition_judgment(item),
+            "evidence": {
+                "report_date": report_date,
+                "summary": item.summary,
+                "trend_score": item.trend_score,
+                "cognition_score": item.cognition_score,
+                "money_score": item.money_score,
+                "risk_score": item.risk_score,
+            },
+        }
+
+    def _trend_key(self, item: IntelligenceItem) -> str:
+        text = re.sub(r"\s+", " ", self._title_zh(item).lower()).strip()
+        return text[:120] or f"item-{item.id or abs(hash(item.url or item.title))}"
 
     def _render_change_item(self, index: int, item: IntelligenceItem) -> list[str]:
         if self._radar_status(item) == "观察中":
@@ -1600,6 +1753,8 @@ class ReportBuilder:
             "暂无明确历史类比",
             "暂无明确可比历史阶段",
             "暂无明确成熟市场参照",
+            "暂无明确价值",
+            "先不输出",
             "时间阶段不明确",
             "产业逻辑上理解",
             "真正的机会不是问题被很多人讨论",
@@ -1979,7 +2134,20 @@ class ReportBuilder:
         if value is None:
             return False
         text = str(value).strip()
-        return bool(text) and text not in {"无", "/", "\\", "-", "N/A", "n/a", "None", "none", "暂无", "无。", "/。"}
+        return bool(text) and text not in {
+            "无",
+            "/",
+            "\\",
+            "-",
+            "N/A",
+            "n/a",
+            "None",
+            "none",
+            "暂无",
+            "暂无明确价值，先不输出",
+            "无。",
+            "/。",
+        }
 
     def _valid_action(self, value) -> bool:
         if not self._valid(value):
@@ -2022,8 +2190,9 @@ class ReportBuilder:
         return any(marker in text for marker in generic_markers)
 
     def _sanitize(self, content: str) -> str:
-        content = re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
-        content = re.sub(r"(?m)^每日破圈赚钱情报\s*$\n?", "", content)
+        for title in [REPORT_TITLE, LEGACY_REPORT_TITLE]:
+            content = re.sub(rf"(?m)^#?\s*{re.escape(title)}\s+\(\d+/\d+\)\s*$\n?", "", content)
+            content = re.sub(rf"(?m)^{re.escape(title)}\s*$\n?", "", content)
         replacements = {
             "轻松月入过万": "夸大收益承诺",
             "零基础暴富": "夸大入门门槛和收益",
@@ -2039,9 +2208,10 @@ class ReportBuilder:
         return self.sanitize_report_content(content)
 
     def sanitize_report_content(self, content: str) -> str:
-        content = re.sub(r"(?m)^#?\s*每日破圈赚钱情报\s+\(\d+/\d+\)\s*$\n?", "", content)
-        content = re.sub(r"每日破圈赚钱情报\s+\(\d+/\d+\)", "", content)
-        content = re.sub(r"(?m)^每日破圈赚钱情报\s*$\n?", "", content)
+        for title in [REPORT_TITLE, LEGACY_REPORT_TITLE]:
+            content = re.sub(rf"(?m)^#?\s*{re.escape(title)}\s+\(\d+/\d+\)\s*$\n?", "", content)
+            content = re.sub(rf"{re.escape(title)}\s+\(\d+/\d+\)", "", content)
+            content = re.sub(rf"(?m)^{re.escape(title)}\s*$\n?", "", content)
         field_fallbacks = {
             "风险提醒": "暂无明显风险，但仍需核实来源、真实案例和交付能力。",
             "风险": "暂无明显风险，但仍需核实来源、真实案例和交付能力。",
@@ -2088,59 +2258,22 @@ class ReportBuilder:
         return matches
 
     def _validate_report_structure(self, report: str) -> None:
-        if "每日破圈赚钱情报 (" in report:
+        for title in [REPORT_TITLE, LEGACY_REPORT_TITLE]:
+            if f"{title} (" in report:
+                raise ValueError("Report structure invalid: Feishu segment title leaked into report content")
+        if re.search(rf"(?m)^{re.escape(LEGACY_REPORT_TITLE)}\s*$", report):
             raise ValueError("Report structure invalid: Feishu segment title leaked into report content")
-        if re.search(r"(?m)^每日破圈赚钱情报\s*$", report):
+        if re.search(rf"(?m)^{re.escape(REPORT_TITLE)}\s*$", report):
             raise ValueError("Report structure invalid: bare Feishu title leaked into report content")
         remaining_markers = self._remaining_empty_markers(report)
         if remaining_markers:
             raise ValueError(f"Report structure invalid after sanitize: empty markers remain {remaining_markers[:5]}")
-        positions = []
-        for heading in SECTION_HEADINGS:
-            count = report.count(heading)
-            if count != 1:
-                raise ValueError(f"Report structure invalid: {heading} appears {count} times")
-            positions.append(report.index(heading))
-        if positions != sorted(positions):
-            raise ValueError("Report structure invalid: section order is wrong")
-
-        forbidden = SECTION_HEADINGS[2:]
-        first_area = report[report.index(SECTION_HEADINGS[1]) : report.index(SECTION_HEADINGS[2])]
-        for heading in forbidden:
-            if heading in first_area:
-                raise ValueError(f"Report structure invalid: {heading} appears inside change item area")
-
-        change_area = report[report.index(SECTION_HEADINGS[1]) : report.index(SECTION_HEADINGS[2])]
-        change_blocks = re.findall(r"(?ms)^### \d+\. .*?(?=^### \d+\.|^## 二、|\Z)", change_area)
-        for block in change_blocks:
-            required = [
-                "#### 我的理解",
-                "#### 历史类比 / 成熟市场参照",
-                "#### 认知破界",
-                "- 大多数人的误解：",
-                "- 高认知视角：",
-                "- 我应该更新的判断：",
-                "- 3 年后可能变成：",
-                "#### 可执行动作",
-            ]
-            missing = [item for item in required if item not in block]
-            if missing:
-                title = block.splitlines()[0] if block.splitlines() else "unknown"
-                raise ValueError(f"Report structure invalid: {title} missing {missing}")
-            has_structured_history = all(
-                marker in block
-                for marker in ["- 可比阶段：", "- 当时带来的机会：", "- 中国是否类似：", "- 对普通人的启发："]
-            )
-            has_observation_history = NO_HISTORY_REFERENCE in block or "暂无必要类比" in block
-            if not has_structured_history and not has_observation_history:
-                title = block.splitlines()[0] if block.splitlines() else "unknown"
-                raise ValueError(f"Report structure invalid: {title} has invalid history section")
-
-        pain_area = report[report.index(SECTION_HEADINGS[3]) : report.index(SECTION_HEADINGS[4])]
-        pain_blocks = re.findall(r"(?ms)^### 痛点 \d+：.*?(?=^### 痛点 \d+：|^## 四、|\Z)", pain_area)
-        for block in pain_blocks:
-            required = ["- 发达国家/成熟市场是否已有类似产品或服务：", "- 认知破界："]
-            missing = [item for item in required if item not in block]
-            if missing:
-                title = block.splitlines()[0] if block.splitlines() else "unknown"
-                raise ValueError(f"Report structure invalid: {title} missing {missing}")
+        fixed_empty_sections = [
+            "## 二、今日赚钱机会雷达",
+            "## 三、全网高频痛点与变现机会",
+            "## 六、今日行动建议",
+            "## 七、今日商业模式拆解",
+        ]
+        leaked = [heading for heading in fixed_empty_sections if heading in report]
+        if leaked:
+            raise ValueError(f"Report structure invalid: fixed template sections leaked {leaked}")

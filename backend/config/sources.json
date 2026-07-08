@@ -24,8 +24,8 @@
     "name": "GDELT AI opportunity search",
     "type": "gdelt",
     "url": "https://api.gdeltproject.org/api/v2/doc/doc",
-    "query": "(AI OR artificial intelligence OR ecommerce OR SaaS OR automation OR startup OR creator economy OR small business)",
-    "category_hint": "科技",
+    "query": "(technology company launches OR platform policy change OR new business model OR consumer behavior shift OR startup innovation OR investment trend OR new product OR new service OR regulation change)",
+    "category_hint": "商业",
     "enabled": true
   },
   {
@@ -34,21 +34,21 @@
     "url": "https://api.gdeltproject.org/api/v2/doc/doc",
     "query": "(\"how to\" OR \"struggling with\" OR \"problem with\" OR \"pain point\" OR \"small business owners\" OR \"ecommerce sellers\" OR \"content creators\" OR \"AI tools\")",
     "category_hint": "痛点机会",
-    "enabled": true
+    "enabled": false
   },
   {
     "name": "Hacker News AI tools pain points",
     "type": "rss",
     "url": "https://hnrss.org/newest?q=AI%20tools%20workflow%20automation%20small%20business",
     "category_hint": "痛点机会",
-    "enabled": true
+    "enabled": false
   },
   {
     "name": "Hacker News ecommerce creator pain points",
     "type": "rss",
     "url": "https://hnrss.org/newest?q=ecommerce%20creator%20marketing%20conversion%20support",
     "category_hint": "痛点机会",
-    "enabled": true
+    "enabled": false
   },
   {
     "name": "可配置痛点关键词池",
@@ -56,6 +56,6 @@
     "url": "pain-keyword://local",
     "query": "孩子不好管怎么办;孩子不爱写作业怎么办;孩子学习习惯怎么培养;亲子沟通总吵架怎么办;宝宝玩具太乱怎么整理;小孩子衣服太小普通衣架太大;儿童衣服怎么收纳;小户型怎么收纳;厨房油烟大怎么办;厨房台面太乱怎么办;家里清洁太累怎么办;宠物掉毛怎么处理;猫毛清理神器好不好用;老人不会用智能手机怎么办;上班没时间做饭怎么办;穿搭不知道怎么搭配怎么办;淘宝客服回复太慢怎么办;客户老问重复问题怎么办;客服常见问题怎么沉淀;新人客服培训太慢怎么办;商家不会做详情页怎么办;淘宝主图不会做怎么办;淘宝店铺转化率低怎么办;小商家不会选品怎么办;小红书发了没人看怎么办;小红书怎么涨粉变现;抖音播放量低怎么办;短视频不会选题怎么办;不会剪辑怎么办;AI工具太多不知道怎么用;不会写 prompt 怎么办;AI怎么落地到工作流;客户重复问题怎么自动回复;个体户怎么提高经营效率;小老板不会做表格怎么办;资料太乱怎么整理;时间管理总失败怎么办;情绪焦虑怎么低成本缓解",
     "category_hint": "痛点机会",
-    "enabled": true
+    "enabled": false
   }
 ]

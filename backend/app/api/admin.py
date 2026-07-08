@@ -12,7 +12,7 @@ def admin_page():
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>每日破圈赚钱情报系统</title>
+  <title>每日商业观察系统</title>
   <style>
     body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; line-height: 1.5; }
     button { padding: 8px 12px; cursor: pointer; }
@@ -21,13 +21,14 @@ def admin_page():
   </style>
 </head>
 <body>
-  <h1>每日破圈赚钱情报系统</h1>
+  <h1>每日商业观察系统</h1>
   <section>
     <button onclick="triggerRun()">手动触发日报</button>
     <button onclick="loadRuns()">刷新运行记录</button>
     <button onclick="loadSources()">刷新数据源</button>
     <button onclick="loadReports()">查看历史日报</button>
     <button onclick="loadLatestReport()">查看最新日报</button>
+    <button onclick="loadTrends()">查看世界变化数据库</button>
     <button onclick="pushLatestReport()">补推最新日报</button>
   </section>
   <section>
@@ -51,6 +52,7 @@ def admin_page():
     function loadSources() { show(fetch('/api/sources')); }
     function loadReports() { show(fetch('/api/reports')); }
     function loadLatestReport() { show(fetch('/api/reports/latest')); }
+    function loadTrends() { show(fetch('/api/trends')); }
     async function pushLatestReport() {
       const latest = await fetch('/api/reports/latest');
       const data = await latest.json();
